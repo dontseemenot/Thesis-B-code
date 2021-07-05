@@ -9,47 +9,22 @@ from datetime import datetime
 import pandas as pd
 import tables
 
-
-
-
-# %%
 rawDir = 'F:\Thesis B insomnia data\Insomnia data\Data_Study3\Berlin PSG EDF files'
 stageDir = 'F:\\Thesis B insomnia data\\Insomnia data\\Data_Study3\\Berlin PSG annotation files'
 destDir = 'F:\\Berlin data formatted'
 # %%
 dataPointsInEpoch = 512 * 30
 
-stageDict = {
-    'Wach': 0,      # Wake
-    'Stadium 1': 1,
-    'Stadium 2': 2,
-    'Stadium 3': 3,
-    'Stadium 4': 4,
-    'Rem': 5,
-    'Bewegung': 6,  # Movement
-    'A': 7          # ???
-}
-
-
-
 # Traverse through 67 patient files
 epochData = []
 df = pd.DataFrame(columns = ['pID', 'Sleep stage', 'Epoch data', 'Patient class'])   # Empty dataframe
 df['Sleep stage'] = df['Sleep stage'].astype('category')
 df['Patient class'] = df['Patient class'].astype('category')
-for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range(67)):
+for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range(5)):
     print(rawName)
     pID = int(rawName[3:5])
     pClass = rawName[-5]
-    # Classify patient as Healthy (G) or Insomniac (I)
-    '''
-    if rawName[-5] == 'G':
-        pClass = 0
-    elif rawName[-5] == 'I':
-        pClass = 1
-    else:
-        pClass = 2
-    '''
+
     # Extract raw data
     raw = mne.io.read_raw_edf(os.path.join(rawDir, rawName))
     samplingFreq = int(raw.info['sfreq'])
@@ -84,7 +59,7 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
     if diff < 0:
         # Sleep stage annotated before raw data recorded. Discard raw data before 2nd sleep stage annotation and start from 2nd sleep stage.
         diffPoints = abs(diff * 512)
-        y = rawData[diffPoints: -1]
+        y = rawData[dataPointsInEpoch - diffPoints: -1]
         offset = 1
         print("Start from 2nd sleep stage, discard prev data. 2nd sleep stage: ", lines[7 + offset])
     elif diff > 0:
@@ -97,10 +72,10 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
         diffPoints = 0
         y = rawData
         print("Same start times, continue")
-    assert(y[0] == rawData[diffPoints])
     
     offset += 7
     epochData = []
+    
     for b in range(offset, len(lines)):
         stage = lines[b].split('; ', 1)[1].split('\n', 1)[0]
         start = (b - offset) * dataPointsInEpoch
@@ -111,7 +86,9 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
             print("Last epoch cut off! Breaking out of loop")
             break
         numEpochs += 1
+        np.all(amplitudeData == rawData[diffPoints + start: diffPoints + end])  # assert
         epochData.append([pID, stage, amplitudeData, pClass])
+# %%
     s = pd.Series(epochData)
     s.to_hdf(os.path.join(destDir, 'allData.h5'), key = str(pID))
 
