@@ -114,10 +114,10 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
 
         start = (b - offset) * dataPointsInEpoch
         end = (b - offset + 1) * dataPointsInEpoch
-        if end >= len(y):
+        if end >= len(y2):
             print("Last epoch cut off! Breaking out of loop")
             break
-        amplitudeData = y[start: end]
+        amplitudeData = y2[start: end]
         artefact = False
         for i in amplitudeData:
             if abs(i) >= 0.000250:
