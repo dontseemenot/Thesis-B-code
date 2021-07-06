@@ -3,25 +3,25 @@ import h5py
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from keras import regularizers
 
 
-dataPath = 'F:\\Berlin data formatted\\alldata.h5'
+dataPath = 'F:\\Berlin data formatted\\alldataPreprocessed.h5'
 Fs1 = 512
 Fs2 = 128
 epochLength = 30
 numEpochDataPoints = Fs1 * epochLength
 
-maxTrainPatients = 4
+maxTrainPatients = 9
 maxTestPatients = 1
 numTrainInsomniaPatients = 0
 numTrainGoodPatients = 0
 numTestInsomniaPatients = 0
 numTestGoodPatients = 0
-
 
 X_train = []
 X_test = []
@@ -29,11 +29,9 @@ Y_train = []
 Y_test = []
 
 # can shuffle if desired
-goodIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
-insomniaIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
-# %%
-# Load dataset
-f = h5py.File(dataPath, "r")
+insomniaIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
+goodIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
+
 # %%
 # Using inter-patient paradigm (split patients into training and testing set)
 
@@ -43,6 +41,7 @@ for g in goodIDs:
     data = pd.read_hdf(dataPath, key = str(g))
     if train == True:
         numTrainGoodPatients += 1
+        X_train 
         for epoch in data:
             X_train.append(epoch[2])
             Y_train.append(epoch[3])
@@ -64,7 +63,7 @@ for i in insomniaIDs:
         numTrainInsomniaPatients += 1
         for epoch in data:
             X_train.append(epoch[2])
-            Y_train.append(epoch[2])
+            Y_train.append(epoch[3])
         if numTrainInsomniaPatients == maxTrainPatients:
             train = False
     else:
@@ -74,16 +73,28 @@ for i in insomniaIDs:
             Y_test.append(epoch[3])
         if numTestInsomniaPatients == maxTestPatients:
             break
+# %%
+# Output class: 0 = good, 1 = insomnia
+X_train = np.asarray(X_train).astype('float32')
+X_train = np.reshape(X_train, (len(X_train), numEpochDataPoints, 1))
+Y_train = [0 if x == 'G' else 1 for x in Y_train]
+Y_train = np.asarray(Y_train).astype('uint8')
+Y_train = np.reshape(Y_train, (len(Y_train), 1))
 
+X_test = np.asarray(X_test).astype('float32')
+X_test = np.reshape(X_test, (len(X_test), numEpochDataPoints, 1))
+Y_test = [0 if x == 'G' else 1 for x in Y_test]
+Y_test = np.asarray(Y_test).astype('uint8')
+Y_test = np.reshape(Y_test, (len(Y_test), 1))
+# %%
 
 # %%
-for p in range(1, 76):  # patient num 1-75
-    try:
-        data = pd.read_hdf(dataPath, key = str(p))    # Use patient ID to index dataset
-    except:
-        print('Patient {} does not exist'.format(p))
-#After you are done
-f.close()
+# Plot to check
+plt.plot(X_train[0][0:512])
+plt.rcParams['figure.figsize'] = [20, 5]
+plt.show()
+
+
 # %%
 model = keras.Sequential([
     # CNN 1
@@ -119,15 +130,18 @@ model = keras.Sequential([
     keras.layers.Dropout(0.5),
     keras.layers.Dense(units = 128, activation = 'relu', kernel_regularizer = regularizers.l2(1e-4)),
     keras.layers.Dropout(0.5),
-    keras.layers.Dense(units = 2, activation = 'relu', kernel_regularizer = regularizers.l2(1e-4))
+    keras.layers.Dense(units = 2, activation = 'relu', kernel_regularizer = regularizers.l2(1e-4)),
 
 ])
 model.summary()
 # %%
-optimizer = keras.optimizers.Adam(lr = 0.0001)
+optimizer = keras.optimizers.Adam(learning_rate = 0.0001)
 model.compile(optimizer = optimizer, loss = keras.losses.SparseCategoricalCrossentropy(),  metrics = ['accuracy'])  # Sparse weights make algorithm faster
-model.fit(batch_size = 256)
-
+history = model.fit(X_train, Y_train, batch_size = 64, epochs = 20)
+# %%
+# model.save("E:\\HDD documents\\University\\Thesis\\Thesis B code\\model1.h5")
+# %%
+model.evaluate(X_test, Y_test)
 # %%
 # LOOCV (do later)
 # Q2f
