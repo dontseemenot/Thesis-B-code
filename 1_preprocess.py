@@ -18,22 +18,24 @@ stageDir = 'F:\\Thesis B insomnia data\\Insomnia data\\Data_Study3\\Berlin PSG a
 destDir = 'F:\\Berlin data formatted'
 
 def customFilter(y, fs):
+    # 50Hz notch filter
     y2 = mne.filter.notch_filter(y, fs, 50)
+    # Passband filter 0.01-50Hz. By default, 4th order butterworth filter is used
     y2 = mne.filter.filter_data(y2, fs, 0.01, 50)
-    
-    
+    # Resample data (if needed) from 512 to 128hz
+    y2 = mne.filter.resample(y2, up = 1, down = 4)
+    '''
     fft = np.fft.rfft(y)
     absfft = np.abs(fft)
     power = np.square(absfft)
     frequency = np.linspace(0, fs/2, len(power))
 
     
-    
     fft2 = np.fft.rfft(y2)
     absfft2 = np.abs(fft2)
     power2 = np.square(absfft2)
     frequency2 = np.linspace(0, fs/2, len(power2))
-
+    '''
     return y2
 
 def trimStart(rawData, stageTimestamp, rawTimestamp, dataPointsInEpoch):
@@ -130,7 +132,7 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
             epochData.append([pID, stage, amplitudeDataNormalized, pClass])
 
     s = pd.Series(epochData)
-    s.to_hdf(os.path.join(destDir, 'allDataPreprocessed.h5'), key = str(pID))
+    s.to_hdf(os.path.join(destDir, 'allDataDownsampled.h5'), key = str(pID))
 
 print("Done")
 
