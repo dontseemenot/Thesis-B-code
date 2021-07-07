@@ -12,18 +12,22 @@ import pandas as pd
 import tables
 from scipy import signal
 
-dataPointsInEpoch = 512 * 30
+downsample = True
+
 rawDir = 'F:\Thesis B insomnia data\Insomnia data\Data_Study3\Berlin PSG EDF files'
 stageDir = 'F:\\Thesis B insomnia data\\Insomnia data\\Data_Study3\\Berlin PSG annotation files'
 destDir = 'F:\\Berlin data formatted'
 
-def customFilter(y, fs):
+def customFilter(y, fs, downsample):
     # 50Hz notch filter
     y2 = mne.filter.notch_filter(y, fs, 50)
     # Passband filter 0.01-50Hz. By default, 4th order butterworth filter is used
     y2 = mne.filter.filter_data(y2, fs, 0.01, 50)
     # Resample data (if needed) from 512 to 128hz
-    y2 = mne.filter.resample(y2, up = 1, down = 4)
+    
+    if downsample:
+        y2 = mne.filter.resample(y2, up = 1, down = 4)
+        fs = 128
     '''
     fft = np.fft.rfft(y)
     absfft = np.abs(fft)
@@ -36,32 +40,29 @@ def customFilter(y, fs):
     power2 = np.square(absfft2)
     frequency2 = np.linspace(0, fs/2, len(power2))
     '''
-    return y2
+    return y2, fs
 
-def trimStart(rawData, stageTimestamp, rawTimestamp, dataPointsInEpoch):
+def trimStart(rawData, stageTimestamp, rawTimestamp, dataPointsInEpoch, fs):
     diff = int((stageTimestamp - rawTimestamp).total_seconds())
     print("Stage: ", stageTimestamp, "| Raw: ", rawTimestamp, " | Stage - raw = ", diff)
     offset = 0
-    if abs(diff) >= 30:
-        print('Error! diff >= 30')
-        return None
+    assert(abs(diff) < 30)
+    if diff < 0:
+        # Sleep stage annotated before raw data recorded. Discard raw data before 2nd sleep stage annotation and start from 2nd sleep stage.
+        diffPoints = dataPointsInEpoch - abs(diff * fs)
+        y = rawData[diffPoints: -1]
+        offset = 1
+        print("Start from 2nd sleep stage, discard prev data. 2nd sleep stage: ", lines[7 + offset])
+    elif diff > 0:
+        # Raw data started recording before sleep stage annotated. Discard raw data before first sleep stage annotation.
+        diffPoints = abs(diff * fs)
+        y = rawData[diffPoints: -1]
+        print("Start from 1st sleep stage, discard prev data. 1st sleep stage: ", lines[7])
     else:
-        if diff < 0:
-            # Sleep stage annotated before raw data recorded. Discard raw data before 2nd sleep stage annotation and start from 2nd sleep stage.
-            diffPoints = dataPointsInEpoch - abs(diff * 512)
-            y = rawData[diffPoints: -1]
-            offset = 1
-            print("Start from 2nd sleep stage, discard prev data. 2nd sleep stage: ", lines[7 + offset])
-        elif diff > 0:
-            # Raw data started recording before sleep stage annotated. Discard raw data before first sleep stage annotation.
-            diffPoints = abs(diff * 512)
-            y = rawData[diffPoints: -1]
-            print("Start from 1st sleep stage, discard prev data. 1st sleep stage: ", lines[7])
-        else:
-            # Sleep stage annotated at same time data recorded. Continue. 
-            diffPoints = 0
-            y = rawData
-            print("Same start times, continue")
+        # Sleep stage annotated at same time data recorded. Continue. 
+        diffPoints = 0
+        y = rawData
+        print("Same start times, continue")
     return y, offset
     
 # Traverse through 67 patient files
@@ -77,7 +78,8 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
     # Extract raw data
     raw = mne.io.read_raw_edf(os.path.join(rawDir, rawName))
     fs = int(raw.info['sfreq'])
-    assert(raw['C4:A1'][1][512] == 1)   # check if sampling freq is really 512
+    assert(raw['C4:A1'][1][512] == 1)   # check if original sampling freq is really 512hz
+    dataPointsInEpoch = fs * 30
     rawData = raw['C4:A1'][0][0]  # raw data only
     
     # timeData = raw['C4:A1'][1]
@@ -102,12 +104,12 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
 
     
     # Power spectrum
-    y, offset = trimStart(rawData, stageTimestamp, rawTimestamp, dataPointsInEpoch)
+    y, offset = trimStart(rawData, stageTimestamp, rawTimestamp, dataPointsInEpoch, fs)
     offset += 7
-    # Remove 250uv artifacts
 
-    y2 = customFilter(y, fs)
-    
+    y2, fs = customFilter(y, fs, downsample)
+
+    dataPointsInEpoch = fs * 30    # If downsampled, data points will be reduced
     epochData = []
     over = 0
     for b in range(offset, len(lines)):
@@ -122,7 +124,8 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
         amplitudeData = y2[start: end]
         artefact = False
         for i in amplitudeData:
-            if abs(i) >= 0.000250:
+            # Remove > 250uv artefacts
+            if abs(i) > 0.000250:
                 #print('artefact at {} for {}'.format(i, b))
                 artefact = True
                 break
@@ -130,7 +133,7 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
             numEpochs += 1
             amplitudeDataNormalized = (amplitudeData[:] - amplitudeData[:].mean()) / (amplitudeData.std(ddof = 0))
             epochData.append([pID, stage, amplitudeDataNormalized, pClass])
-
+# %%
     s = pd.Series(epochData)
     s.to_hdf(os.path.join(destDir, 'allDataDownsampled.h5'), key = str(pID))
 
