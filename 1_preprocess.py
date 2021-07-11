@@ -112,10 +112,11 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
     dataPointsInEpoch = fs * 30    # If downsampled, data points will be reduced
     epochData = []
     over = 0
+
+    # Remove >250uv epochs
     for b in range(offset, len(lines)):
     # for b in range(offset, offset + 2):
         stage = lines[b].split('; ', 1)[1].split('\n', 1)[0]
-
         start = (b - offset) * dataPointsInEpoch
         end = (b - offset + 1) * dataPointsInEpoch
         if end >= len(y2):
@@ -123,19 +124,24 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
             break
         amplitudeData = y2[start: end]
         artefact = False
-        for i in amplitudeData:
+        for i in amplitudeData: # can use list comprehension instead in the future
             # Remove > 250uv artefacts
             if abs(i) > 0.000250:
                 #print('artefact at {} for {}'.format(i, b))
                 artefact = True
                 break
         if artefact == False:
-            numEpochs += 1
-            amplitudeDataNormalized = (amplitudeData[:] - amplitudeData[:].mean()) / (amplitudeData.std(ddof = 0))
-            epochData.append([pID, stage, amplitudeDataNormalized, pClass])
-# %%
+            #amplitudeDataNormalized = (amplitudeData[:] - amplitudeData[:].mean()) / (amplitudeData.std(ddof = 0))
+            #amplitudeDataNormalized = amplitudeData - np.mean(amplitudeData)
+            epochData.append([pID, stage, amplitudeData, pClass])
+    
+    # Remove DC offset (zero mean)
+    dcOffset = np.mean([e for epoch in epochData for e in epoch[2]])
+    for i in range(len(epochData)):
+        epochData[i][2] -= dcOffset
+
     s = pd.Series(epochData)
-    s.to_hdf(os.path.join(destDir, 'allDataDownsampled.h5'), key = str(pID))
+    s.to_hdf(os.path.join(destDir, 'allDataNormDown.h5'), key = str(pID))
 
 print("Done")
 
