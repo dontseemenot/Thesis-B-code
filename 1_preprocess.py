@@ -67,6 +67,10 @@ def trimStart(rawData, stageTimestamp, rawTimestamp, dataPointsInEpoch, fs):
     
 # Traverse through 67 patient files
 epochData = []
+# Normalization bounds
+lower = -1
+upper = 1
+
 df = pd.DataFrame(columns = ['pID', 'Sleep stage', 'Epoch data', 'Patient class'])   # Empty dataframe
 df['Sleep stage'] = df['Sleep stage'].astype('category')
 df['Patient class'] = df['Patient class'].astype('category')
@@ -139,9 +143,11 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
     dcOffset = np.mean([e for epoch in epochData for e in epoch[2]])
     for i in range(len(epochData)):
         epochData[i][2] -= dcOffset
+        epochData[i][2] *= 4000     # shift data from [-250u, 250u] to [-1, 1]
+        #epochData[i][2] = (epochData[i][2] - min(epochData[i][2])) / (max(epochData[i][2]) - min(epochData[i][2]))
 
     s = pd.Series(epochData)
-    s.to_hdf(os.path.join(destDir, 'allDataNormDown.h5'), key = str(pID))
+    s.to_hdf(os.path.join(destDir, 'allDataNormDown2.h5'), key = str(pID))
 
 print("Done")
 
