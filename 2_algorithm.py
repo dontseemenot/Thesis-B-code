@@ -1,4 +1,5 @@
 # %%
+from re import X
 import h5py
 import numpy as np
 import pandas as pd
@@ -13,6 +14,7 @@ import pydot_ng as pydot
 from tensorflow.python.keras.backend import relu
 from keras import backend as K
 import pickle
+from sklearn.model_selection import GroupShuffleSplit, LeavePGroupsOut, GroupKFold
 
 # with a Sequential model
 
@@ -27,8 +29,8 @@ Fs2 = 128
 epochLength = 30
 numEpochDataPoints = Fs2 * epochLength
 
-maxTrainPatients = 27
-maxTestPatients = 3
+maxTrainPatients = 8
+maxTestPatients = 1
 numTrainInsomniaPatients = 0
 numTrainGoodPatients = 0
 numTestInsomniaPatients = 0
@@ -47,10 +49,54 @@ Y_test = []
 #insomniaIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
 #goodIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
 
+# Code for CAP 
 insomniaIDs = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 goodIDs = [11, 12, 13, 14, 15, 22, 24, 25, 26]
+IDs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 22, 24, 25, 26]
 # Using inter-patient paradigm (split patients into training and testing set)
 
+classDict = {'G': 0, 'I': 1}
+df = pd.DataFrame(columns = ['All', 'SLEEP-S0', 'SLEEP-S1', 'SLEEP-S2', 'SLEEP-S3', 'SLEEP-S4', 'SLEEP-REM'], index = ['Control', 'Insomnia', 'Total'])
+good_id_to_group = {11: 1, 12: 2, 13: 3, 14: 4, 15: 5, 22:6, 24:7, 25:8, 26: 9}
+cell_values = {'All': 0, 'SLEEP-S0', 'SLEEP-S1', 'SLEEP-S2', 'SLEEP-S3', 'SLEEP-S4', 'SLEEP-REM'}
+data = []
+groups = np.array([])
+for i in goodIDs:
+    f = pd.read_hdf(dataPath, key = str(i))
+    for epoch in f:
+        data.append([epoch[0], epoch[1], epoch[2], classDict[epoch[3]]])
+        groups = np.append(groups, good_id_to_group[epoch[0]])
+        df.at['Control', epoch[1]] += 1
+        df.at['Total', epoch[1]] += 1
+        df.at['Control', 'All'] += 1
+        df.at['Total', 'All'] += 1
+for i in insomniaIDs:
+    f = pd.read_hdf(dataPath, key = str(i))
+    for epoch in f:
+        data.append([epoch[0], epoch[1], epoch[2], classDict[epoch[3]]])
+        groups = np.append(groups, epoch[0])
+        
+data = np.asarray(data, dtype = object)
+X = data[:, 2]
+y = data[:, 3]
+
+for d in data:
+    df.set_value
+
+lpgo = LeavePGroupsOut(n_groups=1)
+lpgo.get_n_splits(X, y, groups)
+
+lpgo.get_n_splits(groups=groups)  # 'groups' is always required
+
+print(lpgo)
+
+for train_index, test_index in lpgo.split(X, y, groups):
+    print("TRAIN:", train_index, "TEST:", test_index)
+    #X_train, X_test = X[train_index], X[test_index]
+    #y_train, y_test = y[train_index], y[test_index]
+    #print(X_train, X_test, y_train, y_test)
+# %%
+'''
 train = True
 for g in goodIDs:
     print(g)
@@ -77,8 +123,8 @@ for g in goodIDs:
 train = True
 for i in insomniaIDs:
     print(i)
+    data = pd.read_hdf(dataPath, key = str(i))
     if train == True:
-        data = pd.read_hdf(dataPath, key = str(i))
         numTrainInsomniaPatients += 1
         for epoch in data:
             #if epoch[1] == 'Rem':
@@ -96,7 +142,8 @@ for i in insomniaIDs:
             numInsomniaTestEpochs += 1
         if numTestInsomniaPatients == maxTestPatients:
             break
-# %%
+'''
+
 print("Epochs, Good train: {} | In train: {} | Good test: {} | In test: {}".format(numGoodTrainEpochs, numInsomniaTrainEpochs, numGoodTestEpochs, numInsomniaTestEpochs))
 # Output class: 0 = control, 1 = insomnia
 
@@ -167,7 +214,7 @@ model.compile(optimizer = optimizer, loss = keras.losses.SparseCategoricalCrosse
 m = 30   # model number
   # Sparse weights make algorithm faster
 # %%
-history = model.fit(X_train, Y_train, batch_size = 256, epochs = 70, shuffle = True)
+history = model.fit(X_train, Y_train, batch_size = 256, epochs = 80, shuffle = True)
 np.save('{} history.npy'.format(m),history.history)
 # %%
 model.evaluate(X_test, Y_test)

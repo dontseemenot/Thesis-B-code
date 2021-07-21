@@ -54,14 +54,50 @@ def customFilter(y, fs):
     plt.show()
     '''
     return y2, fs_new
-# %%
+
+#5s window overlapping
+'''
+def overlap(epochData, fs):
+    offset = int(128*30/6)
+    epochData2 = []
+    i = 0
+    j = 0
+    curStage = epochData[0][1]
+    combinedData = np.array([])
+    while(i + j < len(epochData)):
+        # Identified a sequence of adjacent epochs with the same sleep stage
+        if epochData[i + j][1] != curStage:
+            print(f"Found sequence at {i}, {j - 1}, stage {curStage}")
+            windows = 1 + 6*(j - 1)  # Every additional epoch adds 6 windows (5 synethetic windows + actual epoch)
+            overlappedData = np.array([])
+            print(f'num size {windows}')
+            start = 0
+            end = fs * 30
+            for k in range(0, windows):
+                overlappedData = np.append(overlappedData, combinedData[start: end])  # sliding window
+                start += offset
+                end += offset
+            curStage = epochData[j][1]
+            combinedData = np.array([])
+            i += j
+            j = 0
+        else:
+            j += 1
+            # Combined epoch data as we attempt to find sequence
+            combinedData = np.append(combinedData, epochData[i + j][2])
+            continue
+        epochData2.append(combinedData)
+
+    return epochData2
+'''
+
 rawDir = 'F:\\CAP Sleep Database'
 destDir = 'F:\\Sleep data formatted'
 rawFiles = ['ins1.edf', 'ins2.edf', 'ins3.edf', 'ins4.edf', 'ins5.edf', 'ins6.edf', 'ins7.edf', 'ins8.edf', 'ins9.edf', 'n1.edf', 'n2.edf', 'n3.edf', 'n4.edf', 'n5.edf', 'n12.edf', 'n14.edf', 'n15.edf', 'n16.edf']
 stageFiles = ['ins1.txt', 'ins2.txt', 'ins3.txt', 'ins4.txt', 'ins5.txt', 'ins6.txt', 'ins7.txt', 'ins8.txt', 'ins9.txt', 'n1.txt', 'n2.txt', 'n3.txt', 'n4.txt', 'n5.txt', 'n12.txt', 'n14.txt', 'n15.txt', 'n16.txt']
 
-#stageFiles = ['n16.txt']
-#rawFiles = ['n16.edf']
+stageFiles = ['ins2.txt']
+rawFiles = ['ins2.edf']
 df = pd.DataFrame(columns = ['pID', 'Sleep stage', 'Epoch data', 'Patient class'])   # Empty dataframe
 df['Sleep stage'] = df['Sleep stage'].astype('category')
 df['Patient class'] = df['Patient class'].astype('category')
@@ -161,6 +197,11 @@ for rawF, stageF in  zip(rawFiles, stageFiles):
         epochData[i][2] *= 4000
     
     
+    #epochData2 = overlap(epochData, fs)
+
+    # Remove artefacts HERE
+
+
     s = pd.Series(epochData)
     s.to_hdf(os.path.join(destDir, 'allCAP.h5'), key = str(pID))
 
