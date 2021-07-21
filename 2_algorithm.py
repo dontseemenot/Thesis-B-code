@@ -13,20 +13,22 @@ import pydot_ng as pydot
 from tensorflow.python.keras.backend import relu
 from keras import backend as K
 import pickle
-# %%
+
 # with a Sequential model
 
 
-#dataPath = 'F:\\Berlin data formatted\\alldataPreprocessed.h5'
-# dataPath = 'F:\\Berlin data formatted\\alldataDownsampled.h5'
-dataPath = 'F:\\Berlin data formatted\\alldataNormDown.h5'
+
+dataPath = 'F:\\Sleep data formatted\\alldataNormDown2.h5'
+
+dataPath = 'F:\\Sleep data formatted\\allCAP.h5'
+
 Fs1 = 512
 Fs2 = 128
 epochLength = 30
 numEpochDataPoints = Fs2 * epochLength
 
-maxTrainPatients = 18
-maxTestPatients = 2
+maxTrainPatients = 27
+maxTestPatients = 3
 numTrainInsomniaPatients = 0
 numTrainGoodPatients = 0
 numTestInsomniaPatients = 0
@@ -42,15 +44,16 @@ Y_train = []
 Y_test = []
 
 # can shuffle if desired
-insomniaIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
-goodIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
+#insomniaIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
+#goodIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
 
-
+insomniaIDs = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+goodIDs = [11, 12, 13, 14, 15, 22, 24, 25, 26]
 # Using inter-patient paradigm (split patients into training and testing set)
 
 train = True
 for g in goodIDs:
-    #print(g)
+    print(g)
     data = pd.read_hdf(dataPath, key = str(g))
     if train == True:
         numTrainGoodPatients += 1
@@ -73,7 +76,7 @@ for g in goodIDs:
 
 train = True
 for i in insomniaIDs:
-    #print(i)
+    print(i)
     if train == True:
         data = pd.read_hdf(dataPath, key = str(i))
         numTrainInsomniaPatients += 1
@@ -95,15 +98,14 @@ for i in insomniaIDs:
             break
 # %%
 print("Epochs, Good train: {} | In train: {} | Good test: {} | In test: {}".format(numGoodTrainEpochs, numInsomniaTrainEpochs, numGoodTestEpochs, numInsomniaTestEpochs))
-# Output class: 0 = good, 1 = insomnia
-#for x in X_train:
-#    x *= float(1/250e-6)
+# Output class: 0 = control, 1 = insomnia
+
 
 X_train = np.asarray(X_train).astype('float32')
 X_train = np.reshape(X_train, (len(X_train), numEpochDataPoints, 1))
 Y_train = [0 if x == 'G' else 1 for x in Y_train]
 Y_train = np.asarray(Y_train).astype('uint8')
-Y_train = np.reshape(Y_train, (len(Y_train)))
+Y_train = np.reshape(Y_train, (len(Y_train), 1))
 
 X_test = np.asarray(X_test).astype('float32')
 X_test = np.reshape(X_test, (len(X_test), numEpochDataPoints, 1))
@@ -162,26 +164,28 @@ model.compile(optimizer = optimizer, loss = keras.losses.SparseCategoricalCrosse
 
 
 # %%
-m = 13   # model number
+m = 30   # model number
   # Sparse weights make algorithm faster
 # %%
-history = model.fit(X_train, Y_train, batch_size = 256, epochs = 40, shuffle = True)
+history = model.fit(X_train, Y_train, batch_size = 256, epochs = 70, shuffle = True)
 np.save('{} history.npy'.format(m),history.history)
 # %%
 model.evaluate(X_test, Y_test)
+# %%
+y_prob = model.predict(X_test) 
+y_classes = y_prob.argmax(axis=-1)
  # %%
-m = 13
-plt.subplot(1, 2, 1)
-plt.plot(history['sparse_categorical_accuracy'], label = 'accuracy', color = 'g')
-plt.plot(history['loss'], label = 'loss', color = 'r')
-plt.suptitle('Train/Test Run #{}'.format(m))
+plt.rcParams["figure.figsize"] = (20,15)
+plt.plot(history.history['sparse_categorical_accuracy'], label = 'accuracy', color = 'g')
+plt.plot(history.history['loss'], label = 'loss', color = 'r')
 plt.title('Training accuracy/loss')
 plt.ylabel('Accuracy/loss')
 plt.xlabel('Training iteration')
-plt.yticks(np.arange(0.5, 1, 0.05))
+plt.yticks(np.arange(0, 1, 0.05))
 plt.grid()
 plt.legend(bbox_to_anchor = (1, 1))
-
+plt.savefig('model{}_accloss.png'.format(m), dpi = 200)
+# %%
 inter_output_model = keras.Model(model.input, model.get_layer(index = 23).output )
 inter_output = inter_output_model.predict(X_test)
 plt.subplot(1, 2, 2)
@@ -195,12 +199,12 @@ plt.ylabel('Softmax output')
 plt.tight_layout()
 plt.grid()
 
-plt.savefig('model{}_accloss_output.png'.format(m), dpi = 200)
+plt.savefig('model{}_output.png'.format(m), dpi = 200)
 # %%
 model.save("E:\\HDD documents\\University\\Thesis\\Thesis B code\\model{}.h5".format(m))
 # %%
 # loading stuff
-n = 13
+n = -1
 model = keras.models.load_model('E:\\HDD documents\\University\\Thesis\\Thesis B code\\model{}.h5'.format(n))
 # %%
 history=np.load('{} history.npy'.format(n),allow_pickle='TRUE').item()
