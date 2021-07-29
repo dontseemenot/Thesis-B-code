@@ -18,7 +18,20 @@ from sklearn.metrics import confusion_matrix, plot_confusion_matrix, accuracy_sc
 from keras.wrappers.scikit_learn import KerasClassifier
 from sklearn.pipeline import Pipeline
 import gc
-# %%
+from datetime import datetime
+from sklearn.utils import resample
+
+def max_num_epochs(stages):
+    max_epochs = 800
+    num_ALL = stages['W'] + stages['S1'] + stages['S2'] + stages['S3'] + stages['S4'] + stages['R']
+    num_LSS = stages['S1'] + stages['S2']
+    num_SWS = stages['S3'] + stages['S4']
+    num_REM = stages['R']
+    num_BSL = stages['W'] + stages['S1'] + stages['S2'] + stages['R']
+    threshold = min(max_epochs, num_ALL, num_LSS, num_SWS, num_REM, num_BSL)
+    print(f'ALL {num_ALL}, LSS {num_LSS}, SWS {num_SWS}, REM {num_REM}, BSL {num_BSL}\nChosen threshold {threshold}')
+    return threshold
+
 def create_model_AlexNet():
     initializer = tf.keras.initializers.HeNormal()  # Kaiming initializer
     AlexNet = keras.Sequential([
@@ -68,12 +81,42 @@ def create_model_AlexNet():
     AlexNet.compile(optimizer = optimizer, loss = keras.losses.SparseCategoricalCrossentropy(),  metrics = ['sparse_categorical_accuracy'])
 
     return AlexNet
-# %%
-datasetName = 'CAP_overlap'
+
+def balance_dataset(df, threshold, subdataset):
+    if subdataset == 'ALL':
+        data = df
+    elif subdataset == 'LSS':
+        data = df.loc[(df['Sleep_Stage'] == 'S1') |  (df['Sleep_Stage'] == 'S2')]
+    elif subdataset == 'SWS':
+        data = df.loc[(df['Sleep_Stage'] == 'S3') |  (df['Sleep_Stage'] == 'S4')]
+    elif subdataset == 'REM':
+        data = df.loc[(df['Sleep_Stage'] == 'R')]
+    elif subdataset == 'BSL':
+        data = df.loc[(df['Sleep_Stage'] == 'W') |  (df['Sleep_Stage'] == 'S1') | (df['Sleep_Stage'] == 'S2') | (df['Sleep_Stage'] == 'R')]
+    data_resampled = resample(data, replace = False, n_samples = threshold, random_state = 42)
+    count = data_resampled['Sleep_Stage'].value_counts()
+    print(f'After balancing:\n{count}')
+    return data_resampled
+
+# A hack to plot confusion matrix with keras model
+class MyModelPredict(object):
+    def __init__(self, model):
+        self._estimator_type = 'classifier'
+        self.model = model
+        
+    def predict(self, X_test):
+        y_pred = model.predict_classes(X_test)
+        return y_pred
+
+
+
+datasetName = 'CAP_2'
+pIDs = ['ins1', 'ins2', 'ins3', 'ins4', 'ins5', 'ins6', 'ins7', 'ins8', 'ins9', 'n1', 'n2', 'n3', 'n4', 'n5', 'n12', 'n14', 'n15', 'n16']
+#pIDs = ['n3', 'n4']
 #datasetName = 'Berlin'
-if datasetName == 'CAP_overlap':
+if datasetName == 'CAP_2':
     # With overlap, scaled
-    dataPath = 'F:\\Sleep data formatted\\CAP.h5'
+    dataPath = 'F:\\Sleep data formatted\\CAP_2.h5'
     Fs = 128
     epochLength = 30
     numEpochDataPoints = Fs * epochLength
@@ -84,66 +127,111 @@ else:
     Fs2 = 128
     epochLength = 30
     numEpochDataPoints = Fs2 * epochLength
-# We need to split the dataset into sleep stages
-df = pd.read_hdf(dataPath, key = datasetName)
-# %%
-# Balance dataset so num of different types of sleep stages are equal within the patient
-threshold_per_pid = []
-for pID, pClass in pd.unique(df['pID'], df['pClass']):
-    num_all = 0
-    num_LSS = 0
-    num_SWS = 0
-    num_REM = 0
-    max_threshold = 800
-    print(df.loc[df['pID'] == pID, 'Sleep_Stage'].value_counts())
-    stages = df.loc[df['pID'] == pID, 'Sleep_Stage'].value_counts().index.tolist()
-    for s in stages:
-        num_all += df.loc[df['pID'] == pID, 'Sleep_Stage'].value_counts()[s]
-        if s == 'S1' or s == 'S2':
-            num_LSS += df.loc[df['pID'] == pID, 'Sleep_Stage'].value_counts()[s]
-        elif s == 'S3' or s == 'S4':
-            num_SWS += df.loc[df['pID'] == pID, 'Sleep_Stage'].value_counts()[s]
-        elif s == 'REM':
-            num_REM += df.loc[df['pID'] == pID, 'Sleep_Stage'].value_counts()[s]
-    threshold = min(num_all, num_LSS, num_SWS, num_REM, max_threshold)
-    print(f'pID {pID}\nAll {num_all}, LSS {num_LSS}, SWS {num_SWS}, REM {num_REM}\nChosen threshold {threshold}\n')
-    threshold_per_pid.append((pID, threshold))        
-    
 
-# %%
+# We need to split the dataset into sleep stages
+X = []
+y = []
+groups = []
+num_insomnia = 0
+num_control = 0
 group_dict = {'n1': 1, 'n2': 2, 'n3': 3, 'n4': 4, 'n5': 5, 'n12': 6, 'n14': 7, 'n15': 8, 'n16': 9,
         'ins1': 1, 'ins2': 2, 'ins3': 3, 'ins4': 4, 'ins5': 5, 'ins6': 6, 'ins7': 7, 'ins8': 8, 'ins9': 9}
 pClass_dict = {'G': 0, 'I': 1}
-lpgo = LeavePGroupsOut(n_groups = 1)
-X = np.array(df.iloc[:, 2:-1])
-y = np.array([pClass_dict[pClass] for pClass in df.iloc[:, -1]])
+for pID in pIDs:
+    print(f'pID: {pID}')
+    # To avoid loading all data into RAM, we load only one patient at a time
+    with pd.HDFStore(dataPath) as store:
+        df = store[pID]
+        pID, pClass, stages = store.get_storer(pID).attrs.metadata
+        threshold = max_num_epochs(stages)
+        subdataset = 'REM'  # Choose from All, LSS, SWS, REM, BSL
+        df_balanced = balance_dataset(df, threshold, subdataset)   # Balance distribution of 5 types of subdataset
 
-groups = np.array([group_dict[stage] for stage in df.iloc[:, 0]])
-print(f'X.shape {X.shape} Y.shape {y.shape} group.shape {groups.shape}')
-del df
-gc.collect()    # Free up memory used by df
-# %%
-# Inter-patient K-fold CV, K = 9
+        # Because threshold can be different size, we need to append epoch data one by one to list
+        [X.append(row) for row in df_balanced.iloc[:, 1:None].to_numpy()]
+        [y.append(pClass_dict[pClass]) for i in range(threshold)]
+        [groups.append(group_dict[pID]) for i in range(threshold)]
+        if pClass == 'I':
+            num_insomnia += 1
+        else:
+            num_control += 1
+        
+
+
+X = np.asarray(X)   # Use asarray to avoid making copies of array
+X = X.reshape(X.shape[0], X.shape[1], 1)
+y = np.asarray(y)       
+y = y.reshape(y.shape[0], 1)  
+groups = np.asarray(groups)
+print(f'Subdataset {subdataset}: X.shape {X.shape} Y.shape {y.shape} group.shape {groups.shape} I {num_insomnia} G {num_control} ')
+
+# K-fold into train and test dataset (K = 9)
 lpgo = LeavePGroupsOut(n_groups = 1)
 lpgo.get_n_splits(X, y, groups)
-for train_index, test_index, in lpgo.split(X, y, groups):    # returns generators
-    X_train = X[train_index].reshape(len(X[train_index]), numEpochDataPoints, 1)
-    y_train = y[train_index].reshape(len(y[train_index]), 1)
-    X_test = X[test_index].reshape(len(X[test_index]), numEpochDataPoints, 1)
-    y_test = y[test_index].reshape(len(y[test_index]), 1)
+# %%
+results = []
+models = []
+for ((train_index, test_index), iteration) in zip(lpgo.split(X, y, groups), range(1)):
+#for train_index, test_index in lpgo.split(X, y, groups):    # returns generators
+    X_train = X[train_index]
+    y_train = y[train_index]
+    X_test = X[test_index]
+    y_test = y[test_index]
     print(f'X_train {X[train_index].shape} y_train {y[train_index].shape} X_test {X[test_index].shape} y_test {y[test_index].shape}')
-# %%
-AlexNet = KerasClassifier(build_fn = create_model_AlexNet, epochs = 10, batch_size = 256)
-pipeline = Pipeline([
-    ('AlexNet', AlexNet)
-])
 
-pipeline.fit(X_train, y_train)
-# %%
-y_pred = pipeline.predict(X_test)
 
+    '''
+    AlexNet = KerasClassifier(build_fn = create_model_AlexNet, epochs = 50, batch_size = 256)
+    pipeline = Pipeline([
+        ('AlexNet', AlexNet)
+    ])
+
+    pipeline.fit(X_train, y_train)
+    y_pred = pipeline.predict(X_test)
+    unique, counts = np.unique(y_test, return_counts=True)
+    d = dict(zip(unique, counts))
+    results.append((accuracy_score(y_test, y_pred), d))
+    print(results)
+    models.append(pipeline)
+    
+    '''
+    model = keras.models.load_model(f'./CAP results/balanced data epoch 80/28-07-2021 18.45.41 fold_{iteration + 1}.h5')
+    y_pred = model.predict_classes(X_test)
+    unique, counts = np.unique(y_test, return_counts=True)
+    d = dict(zip(unique, counts))
+    results.append((accuracy_score(y_test, y_pred), d))
+    #print(results)
+    cm = MyModelPredict(model)  # A hack to plot confusion matrix with keras model
+    plot_confusion_matrix(cm, X_test, y_test,
+                             display_labels=['0', '1'],
+                             cmap=plt.cm.Blues,
+                             normalize='true')
+# %%
+now = datetime.now()
+dt_string = now.strftime("%d-%m-%Y %H.%M.%S")
+for m, x in zip(models, range(1, 10)):
+    m[0].model.save(f'./CAP results/balanced data epoch 80/{dt_string} fold_{x}.h5')
+results = np.array(results)
+np.save('./CAP results/overlap epoch 20/results', results)
+# %%
+import os
+#for f in os.listdir('./CAP results/balanced data epoch 80/'):
+    
+model = keras.models.load_model(f'./CAP results/balanced data epoch 80/28-07-2021 18.45.41 fold_1.h5')
+y_pred = model.predict(X_test)
+# %%
+    unique, counts = np.unique(y_test, return_counts=True)
+    d = dict(zip(unique, counts))
+    results.append((accuracy_score(y_test, y_pred), d))
+    print(results)
+    models.append(pipeline)
 # %%
 
+res = tf.math.confusion_matrix(y_test, y_pred)
+plot_confusion_matrix(models[8][0], X_test, y_test,
+                             display_labels={"Control", "Insomnia"},
+                             cmap=plt.cm.Blues,
+                             normalize= True)
 # %%
 maxTrainPatients = 8
 maxTestPatients = 1

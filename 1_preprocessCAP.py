@@ -59,52 +59,53 @@ def overlap(epochData, dataPointsInEpoch):
     epochData2 = []
     i = 0
     j = 0
-    curStage = epochData[0][1]
+    curStage = epochData[0][0]
     epochData2.append(epochData[0])
     for i in range(1, len(epochData)):
     #for i in range(1, 4):  # debugging
-        if epochData[i][1] == curStage:
-            epochCombined = np.array([*epochData[i - 1][2], *epochData[i][2]])
+        if epochData[i][0] == curStage:
+            epochCombined = np.array([*epochData[i - 1][1], *epochData[i][1]])
             assert(len(epochCombined) == dataPointsInEpoch*2)
             # Do overlap
             for j in range(1, extraWindows + 1):    # j = 1 to 5
-                epochData2.append([epochData[i][0], epochData[i][1], epochCombined[j*offset: j*offset + dataPointsInEpoch], epochData[i][3]])
-            curStage = epochData[i][1]
+                epochData2.append([epochData[i][0], epochCombined[j*offset: j*offset + dataPointsInEpoch]])
+            curStage = epochData[i][0]
             assert(np.all(
                 epochCombined[(2*offset):(2*offset + dataPointsInEpoch)] ==
-                [*epochData2[-4][2]]))  # Sanity check
+                [*epochData2[-4][1]]))  # Sanity check
         epochData2.append(epochData[i])
-        assert(np.all(epochData[i][2] == epochData2[-1][2]))    # Sanity check
-        curStage = epochData[i][1]
+        assert(np.all(epochData[i][1] == epochData2[-1][1]))    # Sanity check
+        curStage = epochData[i][0]
             
         
     print(f'len1 {len(epochData)}, len2 {len(epochData2)}')
     return epochData2
 
 def removeArtefacts(epochData):
-    epochData2 = [epoch for epoch in epochData if all(abs(point) <= 1.0 for point in epoch[2])]
+    epochData2 = [epoch for epoch in epochData if all(abs(point) <= 1.0 for point in epoch[1])]
 
     print('artefacts removed ', len(epochData) - len(epochData2))
 
     return epochData2
 
 def removeDCOffset(epochData):
-    localMeans = np.mean([data for epoch in epochData for data in epoch[2]])    # mean for each epoch
+    localMeans = np.mean([data for epoch in epochData for data in epoch[1]])    # mean for each epoch
     dcOffset = np.mean(localMeans)  # global mean
     print('dcoffset ', dcOffset)
     epochData2 = []
     for epoch in epochData:
-        epochData2.append([epoch[0], epoch[1], epoch[2] - dcOffset, epoch[3]])
+        epochData2.append([epoch[0], epoch[1] - dcOffset])
     return epochData2
 
 def scale(epochData):
     scaleFactor = 4000
     epochData2 = []
     for epoch in epochData:
-        epochData2.append([epoch[0], epoch[1], epoch[2]*scaleFactor, epoch[3]])
+        epochData2.append([epoch[0], epoch[1]*scaleFactor])
     return epochData2
 
 def annotateData(rawF, stageF):
+    
     ch = 'C4-A1'
     ampMult = 1
     lineOffset = 0
@@ -114,10 +115,12 @@ def annotateData(rawF, stageF):
         ampMult = 1/1000000   # also they didn't convert to uV
     
     if rawF[0:3] == 'ins':
-        pID = int(rawF[3])
+        #pID = int(rawF[3])
+        pID = rawF[0:4]
         pClass = 'I'
     elif rawF[0] == 'n':
-        pID = int(re.search('[0-9]{1,2}', rawF).group()) + 10
+        #pID = int(re.search('[0-9]{1,2}', rawF).group()) + 10
+        pID = re.search('n[0-9]{1,2}', rawF).group()
         pClass = 'G'
 
     else:
@@ -159,6 +162,7 @@ def annotateData(rawF, stageF):
     y2, fs = customFilter(y, fs)    # returns new frequency of 128
     dataPointsInEpoch = fs * 30
 
+    sleepDict = {'SLEEP-S0': 'W', 'SLEEP-S1': 'S1', 'SLEEP-S2': 'S2', 'SLEEP-S3': 'S3', 'SLEEP-S4': 'S4', 'SLEEP-REM': 'R'}
     i = 0
     epochData = []
     for line in stageLines[22: None]:
@@ -179,57 +183,67 @@ def annotateData(rawF, stageF):
                 # print("Last epoch cut off! Breaking out of loop")
                 break
             i += 1
-            epochData.append([pID, stage, amplitudeData, pClass])
+            epochData.append([sleepDict[stage], amplitudeData])
         
-    return epochData, dataPointsInEpoch
+    return epochData, dataPointsInEpoch, pID, pClass
+
+def countSleepStages(sleep_stages_list):
+    num_W = 0
+    num_S1 = 0
+    num_S2 = 0
+    num_S3 = 0
+    num_S4 = 0
+    num_R = 0
+    num_all = 0
+    for s in sleep_stages_list:
+        num_all += 1
+        if s == 'W':
+            num_W += 1
+        elif s == 'S1':
+            num_S1 += 1
+        elif s == 'S2':
+            num_S2 += 1
+        elif s == 'S3':
+            num_S3 += 1
+        elif s == 'S4':
+            num_S4 += 1
+        elif s == 'R':
+            num_R += 1
+    
+    return ({'W': num_W, 'S1': num_S1, 'S2': num_S2, 'S3': num_S3, 'S4': num_S4, 'R': num_R, 'All': num_all})
 
 
 rawDir = 'F:\\CAP Sleep Database'
-dest_file_h5 = 'F:/Sleep data formatted/CAP.h5'
-dest_file_pickle = 'F:/Sleep data formatted/CAP.pkl'
+dest_file_h5 = 'F:/Sleep data formatted/CAP_2.h5'
 rawFiles = ['ins1.edf', 'ins2.edf', 'ins3.edf', 'ins4.edf', 'ins5.edf', 'ins6.edf', 'ins7.edf', 'ins8.edf', 'ins9.edf', 'n1.edf', 'n2.edf', 'n3.edf', 'n4.edf', 'n5.edf', 'n12.edf', 'n14.edf', 'n15.edf', 'n16.edf']
 stageFiles = ['ins1.txt', 'ins2.txt', 'ins3.txt', 'ins4.txt', 'ins5.txt', 'ins6.txt', 'ins7.txt', 'ins8.txt', 'ins9.txt', 'n1.txt', 'n2.txt', 'n3.txt', 'n4.txt', 'n5.txt', 'n12.txt', 'n14.txt', 'n15.txt', 'n16.txt']
 
-stageFiles = ['ins2.txt']
-rawFiles = ['ins2.edf']
+#stageFiles = ['n2.txt']
+#rawFiles = ['n2.edf']
 
 for rawF, stageF in  zip(rawFiles, stageFiles):
 
-    epochData, dataPointsInEpoch = annotateData(rawF, stageF)
+    epochData, dataPointsInEpoch, pID, pClass = annotateData(rawF, stageF)
     
     epochData = overlap(epochData, dataPointsInEpoch)
     epochData = removeDCOffset(epochData)
     epochData = scale(epochData)
-    epochData = removeArtefacts(epochData)  # We need to do this last to ensure
-
-    # Remove offset and scale data from [-250, 250uV] to [-1, 1]
-    ###
-
+    epochData = removeArtefacts(epochData)  # We need to do this last to ensure when we scale the data later, all values lie within [-1, 1]
+    (sleep_stage_count) = countSleepStages([epoch[0] for epoch in epochData]) # returns W, S1, ... R, total/all
+    print(sleep_stage_count)
     dataCols = [f'X{x}' for x in range(1, dataPointsInEpoch + 1)]
-    columns = ['pID', 'Sleep_Stage', *dataCols, 'pClass']
-    data = [(epoch[0], epoch[1], *epoch[2], epoch[3]) for epoch in epochData]
+    columns = ['Sleep_Stage', *dataCols]
+    data = [[str(epoch[0]), *epoch[1]] for epoch in epochData]
+
     df = pd.DataFrame(columns = columns, data = data)
-
-    # store = pd.HDFStore(dest_file_h5)
-    # store.append('one', df, format = 't', data_columns = columns)
-    df.to_hdf(dest_file_h5, 'CAP_overlap', append=True, index=False)
-    
-    
-# %%
-
-# %%
-
-
-    # Remove artefacts HERE
-
-# %%
-    #s = pd.Series(epochData)
-    #s.to_hdf(os.path.join(destDir, 'allCAP.h5'), key = str(pID))
-
-        
-    
     
 
+    store = pd.HDFStore(dest_file_h5)
+    store.put(pID, df)
+    metadata = (pID, pClass, (sleep_stage_count))
+    store.get_storer(pID).attrs.metadata = metadata
+    store.close()
 
+    
 
 # %%
