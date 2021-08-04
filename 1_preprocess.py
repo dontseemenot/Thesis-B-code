@@ -143,13 +143,15 @@ for rawName, stageName, p in zip(os.listdir(rawDir), os.listdir(stageDir), range
     dcOffset = np.mean([e for epoch in epochData for e in epoch[2]])
     for i in range(len(epochData)):
         epochData[i][2] -= dcOffset
-        epochData[i][2] *= 4000     # shift data from [-250u, 250u] to [-1, 1]
+        #epochData[i][2] *= 4000     # shift data from [-250u, 250u] to [-1, 1]
         #epochData[i][2] = (epochData[i][2] - min(epochData[i][2])) / (max(epochData[i][2]) - min(epochData[i][2]))
 
     s = pd.Series(epochData)
-    s.to_hdf(os.path.join(destDir, 'allDataNormDown2.h5'), key = str(pID))
+    s.to_hdf(os.path.join(destDir, 'Berlin.h5'), key = str(pID))
 
 print("Done")
 
 
  # %%
+
+# %%

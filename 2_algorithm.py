@@ -11,15 +11,19 @@ from keras import regularizers
 from tensorflow.keras.utils import plot_model
 import pydot_ng as pydot
 from tensorflow.python.keras.backend import relu
-from keras import backend as K
 import pickle
 from sklearn.model_selection import GroupShuffleSplit, LeavePGroupsOut, GroupKFold
-from sklearn.metrics import confusion_matrix, plot_confusion_matrix, accuracy_score
+from sklearn.metrics import confusion_matrix, plot_confusion_matrix, accuracy_score, ConfusionMatrixDisplay
 from keras.wrappers.scikit_learn import KerasClassifier
 from sklearn.pipeline import Pipeline
 import gc
 from datetime import datetime
 from sklearn.utils import resample
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, MaxAbsScaler
+import seaborn as sn
+import os
+import json
+
 
 def max_num_epochs(stages):
     max_epochs = 800
@@ -36,29 +40,29 @@ def create_model_AlexNet():
     initializer = tf.keras.initializers.HeNormal()  # Kaiming initializer
     AlexNet = keras.Sequential([
         # CNN 1
-        keras.layers.Conv1D(filters = 64, kernel_size = 11, strides = 4,  padding = 'same', input_shape = (numEpochDataPoints, 1), kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4)),
+        keras.layers.Conv1D(filters = 64, kernel_size = 11, strides = 4,  padding = 'same', input_shape = (numEpochDataPoints, 1), kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4), data_format = 'channels_last'),
         keras.layers.BatchNormalization(),
         keras.layers.Activation('relu'),
-        keras.layers.MaxPooling1D(pool_size = 3, strides = 2, padding = 'valid'),
+        keras.layers.MaxPooling1D(pool_size = 3, strides = 2, padding = 'valid', data_format = 'channels_last'),
 
         # CNN 2
-        keras.layers.Conv1D(filters = 192, kernel_size = 5, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4)),
+        keras.layers.Conv1D(filters = 192, kernel_size = 5, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4), data_format = 'channels_last'),
         keras.layers.Activation('relu'),
-        keras.layers.MaxPooling1D(pool_size = 3, strides = 2, padding = 'valid'),
+        keras.layers.MaxPooling1D(pool_size = 3, strides = 2, padding = 'valid', data_format = 'channels_last'),
 
         # CNN 3
-        keras.layers.Conv1D(filters = 384, kernel_size = 3, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4)),
+        keras.layers.Conv1D(filters = 384, kernel_size = 3, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4), data_format = 'channels_last'),
         keras.layers.Activation('relu'),
 
         # CNN 4
-        keras.layers.Conv1D(filters = 256, kernel_size = 3, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4)),
+        keras.layers.Conv1D(filters = 256, kernel_size = 3, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4), data_format = 'channels_last'),
         keras.layers.Activation('relu'),
 
         # CNN 5
-        keras.layers.Conv1D(filters = 256, kernel_size = 3, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4)),
+        keras.layers.Conv1D(filters = 256, kernel_size = 3, strides = 1,  padding = 'same', kernel_initializer=initializer, kernel_regularizer = regularizers.l2(1e-4), data_format = 'channels_last'),
         keras.layers.Activation('relu'),
-        keras.layers.MaxPooling1D(pool_size = 3, strides = 2, padding = 'valid'),
-        keras.layers.AveragePooling1D(pool_size = 18, strides = 18, padding = 'valid'),
+        keras.layers.MaxPooling1D(pool_size = 3, strides = 2, padding = 'valid', data_format = 'channels_last'),
+        keras.layers.AveragePooling1D(pool_size = 18, strides = 18, padding = 'valid', data_format = 'channels_last'),
 
         # Flatten
         keras.layers.Flatten(),
@@ -76,10 +80,9 @@ def create_model_AlexNet():
         keras.layers.Activation('softmax') # Output activation is softmax
     ])
     
-    #model.summary()
     optimizer = keras.optimizers.Adam(learning_rate = 0.0001)
     AlexNet.compile(optimizer = optimizer, loss = keras.losses.SparseCategoricalCrossentropy(),  metrics = ['sparse_categorical_accuracy'])
-
+    print(AlexNet.summary())
     return AlexNet
 
 def balance_dataset(df, threshold, subdataset):
@@ -98,6 +101,15 @@ def balance_dataset(df, threshold, subdataset):
     print(f'After balancing:\n{count}')
     return data_resampled
 
+class ReshapeToTensor():
+    def __init__(self):
+        pass
+    def fit(self, X, y = None):
+        return self
+    
+    def transform(self, X, y = None):
+        X = np.expand_dims(X, -1)
+        return X
 # A hack to plot confusion matrix with keras model
 class MyModelPredict(object):
     def __init__(self, model):
@@ -105,28 +117,33 @@ class MyModelPredict(object):
         self.model = model
         
     def predict(self, X_test):
-        y_pred = model.predict_classes(X_test)
+        m = self.model
+        y_pred = m.predict_classes(X_test)
         return y_pred
 
 
 
-datasetName = 'CAP_2'
-pIDs = ['ins1', 'ins2', 'ins3', 'ins4', 'ins5', 'ins6', 'ins7', 'ins8', 'ins9', 'n1', 'n2', 'n3', 'n4', 'n5', 'n12', 'n14', 'n15', 'n16']
-#pIDs = ['n3', 'n4']
-#datasetName = 'Berlin'
-if datasetName == 'CAP_2':
-    # With overlap, scaled
-    dataPath = 'F:\\Sleep data formatted\\CAP_2.h5'
-    Fs = 128
-    epochLength = 30
-    numEpochDataPoints = Fs * epochLength
-    
-else:
-    dataPath = 'F:\\Sleep data formatted\\alldataNormDown2.h5'
-    Fs1 = 512
-    Fs2 = 128
-    epochLength = 30
-    numEpochDataPoints = Fs2 * epochLength
+dataset = 'Berlin'
+balance = False
+dataPath = f'F:\\Sleep data formatted\\{dataset}.h5'
+numEpochDataPoints = 128*30
+if dataset == 'CAP_3':
+    pIDs = ['ins1', 'ins2', 'ins3', 'ins4', 'ins5', 'ins6', 'ins7', 'ins8', 'ins9', 'n1', 'n2', 'n3', 'n4', 'n5', 'n12', 'n14', 'n15', 'n16']
+    # For GroupKFold CV
+    group_dict = {'n1': 1, 'n2': 2, 'n3': 3, 'n4': 4, 'n5': 5, 'n12': 6, 'n14': 7, 'n15': 8, 'n16': 9,
+        'ins1': 1, 'ins2': 2, 'ins3': 3, 'ins4': 4, 'ins5': 5, 'ins6': 6, 'ins7': 7, 'ins8': 8, 'ins9': 9}
+    n_splits = 9
+elif dataset == 'Berlin':
+    pIDs = [
+        # Insomnia
+        1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75,
+        # Controls
+        3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65
+    ]
+    group_dict = {}
+    n_splits = 5
+
+
 
 # We need to split the dataset into sleep stages
 X = []
@@ -134,79 +151,165 @@ y = []
 groups = []
 num_insomnia = 0
 num_control = 0
-group_dict = {'n1': 1, 'n2': 2, 'n3': 3, 'n4': 4, 'n5': 5, 'n12': 6, 'n14': 7, 'n15': 8, 'n16': 9,
-        'ins1': 1, 'ins2': 2, 'ins3': 3, 'ins4': 4, 'ins5': 5, 'ins6': 6, 'ins7': 7, 'ins8': 8, 'ins9': 9}
+
+max_ins_patients = 30
+max_con_patients = 30
+ins_patients = 0
+con_patients = 0
+# Berlin. can shuffle if desired
+#insomniaIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
+#goodIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
+
 pClass_dict = {'G': 0, 'I': 1}
+
 for pID in pIDs:
+    pID = str(pID)
     print(f'pID: {pID}')
     # To avoid loading all data into RAM, we load only one patient at a time
     with pd.HDFStore(dataPath) as store:
         df = store[pID]
         pID, pClass, stages = store.get_storer(pID).attrs.metadata
-        threshold = max_num_epochs(stages)
-        subdataset = 'REM'  # Choose from All, LSS, SWS, REM, BSL
-        df_balanced = balance_dataset(df, threshold, subdataset)   # Balance distribution of 5 types of subdataset
-
-        # Because threshold can be different size, we need to append epoch data one by one to list
-        [X.append(row) for row in df_balanced.iloc[:, 1:None].to_numpy()]
-        [y.append(pClass_dict[pClass]) for i in range(threshold)]
-        [groups.append(group_dict[pID]) for i in range(threshold)]
-        if pClass == 'I':
-            num_insomnia += 1
+        if pClass == 'I' and ins_patients == max_ins_patients or pClass == 'G' and con_patients == max_con_patients:
+            print(f'Rejected pid {pID}, limit reached')
         else:
-            num_control += 1
+            threshold = max_num_epochs(stages)
+            subdataset = 'ALL'  # Choose from All, LSS, SWS, REM, BSL
+            if balance == True:
+                df = balance_dataset(df, threshold, subdataset)   # Balance distribution of 5 types of subdataset
+            if pClass == 'I':
+                num_insomnia += len(df)
+                ins_patients += 1
+                group_dict[pID] = ins_patients
+            else:
+                num_control += len(df)
+                con_patients += 1
+                group_dict[pID] = con_patients
+            # Because threshold can be different size, we need to append epoch data one by one to list
+            [X.append(row) for row in df.iloc[:, 1:None].to_numpy()]
+            [y.append(pClass_dict[pClass]) for i in range(len(df.iloc[:, 0]))]
+            [groups.append(group_dict[pID]) for i in range(len(df.iloc[:, 0]))]
+            
+            
         
 
 
 X = np.asarray(X)   # Use asarray to avoid making copies of array
-X = X.reshape(X.shape[0], X.shape[1], 1)
+#X = X.reshape(X.shape[0], X.shape[1], 1)
 y = np.asarray(y)       
-y = y.reshape(y.shape[0], 1)  
+#y = y.reshape(y.shape[0], 1)  
 groups = np.asarray(groups)
 print(f'Subdataset {subdataset}: X.shape {X.shape} Y.shape {y.shape} group.shape {groups.shape} I {num_insomnia} G {num_control} ')
 
-# K-fold into train and test dataset (K = 9)
-lpgo = LeavePGroupsOut(n_groups = 1)
-lpgo.get_n_splits(X, y, groups)
+# K-fold into train and test datasets
+gkf = GroupKFold(n_splits = n_splits)
 # %%
-results = []
-models = []
-for ((train_index, test_index), iteration) in zip(lpgo.split(X, y, groups), range(1)):
+results_dir = './Berlin results/no overlap no balance all/'
+if not os.path.exists(results_dir):
+    os.makedirs(results_dir)
+with open(f'{results_dir}timestamp.txt', 'w') as f:
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%Y %H.%M.%S")
+    f.write(f'Start time: {dt_string}')
+#for ((train_index, test_index), iteration, f) in zip(lpgo.split(X, y, groups), range(9), os.listdir('./CAP results/balanced data epoch 80 rem models/')):
 #for train_index, test_index in lpgo.split(X, y, groups):    # returns generators
-    X_train = X[train_index]
+performance_metrics_all = []
+results_all = []
+cm_all = []
+
+for (train_index, test_index), i in zip(gkf.split(X, y, groups), range(30)):
+    #keras.backend.image_data_format()
+    #keras.backend.set_image_data_format('channels_first')
+
+    X_train = X[train_index].astype('float32')
     y_train = y[train_index]
-    X_test = X[test_index]
+    X_test = X[test_index].astype('float32')
     y_test = y[test_index]
-    print(f'X_train {X[train_index].shape} y_train {y[train_index].shape} X_test {X[test_index].shape} y_test {y[test_index].shape}')
+    train_groups = np.unique(groups[train_index])
+    test_groups = np.unique(groups[test_index])
 
+    unique, counts = np.unique(y_train, return_counts = True)
+    train_info = dict(zip(unique, counts))
+    unique, counts = np.unique(y_test, return_counts = True)
+    test_info = dict(zip(unique, counts))
+    iteration = f'Train groups {train_groups}; test groups {test_groups}'
+    info = f'{iteration}\nX_train {X[train_index].shape} y_train {y[train_index].shape} X_test {X[test_index].shape} y_test {y[test_index].shape}\nTrain info: {train_info} Test info: {test_info}'
+    print(info)
 
-    '''
-    AlexNet = KerasClassifier(build_fn = create_model_AlexNet, epochs = 50, batch_size = 256)
-    pipeline = Pipeline([
+    folder = os.path.join(results_dir, f'Fold {i}/')
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    AlexNet = KerasClassifier(build_fn = create_model_AlexNet, epochs = 80, batch_size = 256)
+    pipe = Pipeline([
+        ('standardscaler', StandardScaler()),   # Scale all points in each epoch to zero mean, and feature for all epochs to have unit variance (sum to occurrences)
+        ('minmaxscaler', MaxAbsScaler()),
+        ('reshape_to_tensor', ReshapeToTensor()),
         ('AlexNet', AlexNet)
     ])
 
-    pipeline.fit(X_train, y_train)
-    y_pred = pipeline.predict(X_test)
-    unique, counts = np.unique(y_test, return_counts=True)
-    d = dict(zip(unique, counts))
-    results.append((accuracy_score(y_test, y_pred), d))
-    print(results)
-    models.append(pipeline)
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+
+    # Get and save performance metrics
     
-    '''
-    model = keras.models.load_model(f'./CAP results/balanced data epoch 80/28-07-2021 18.45.41 fold_{iteration + 1}.h5')
-    y_pred = model.predict_classes(X_test)
-    unique, counts = np.unique(y_test, return_counts=True)
-    d = dict(zip(unique, counts))
-    results.append((accuracy_score(y_test, y_pred), d))
-    #print(results)
-    cm = MyModelPredict(model)  # A hack to plot confusion matrix with keras model
-    plot_confusion_matrix(cm, X_test, y_test,
-                             display_labels=['0', '1'],
-                             cmap=plt.cm.Blues,
-                             normalize='true')
+    model = pipe[-1]
+    model.model.save(f'{folder}AlexNet.h5')
+
+    results = {}
+    results['y_pred'] = y_pred
+    results['y_test'] = y_test
+    np.save(f'{folder}y_pred y_test.npy', results)
+    results_all.append(results)
+
+    cm = confusion_matrix(y_test, y_pred)
+    cm_display = ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ['Control (0)', 'Insomnia (1)']).plot(cmap = 'Blues')
+    plt.title(f'Fold {i+1} confusion matrix')
+    plt.savefig(f'{folder}Fold {i+1} confusion matrix.png', dpi = 100)
+    plt.clf()
+    cm_all.append(cm)
+
+    cm_norm = confusion_matrix(y_test, y_pred, normalize = 'true')
+    cm_display = ConfusionMatrixDisplay(confusion_matrix = cm_norm, display_labels = ['Control (0)', 'Insomnia (1)']).plot(cmap = 'Blues')
+    plt.title(f'Fold {i+1} confusion matrix')
+    plt.savefig(f'{folder}Fold {i+1} confusion matrix normalized.png', dpi = 100)
+    plt.clf()
+
+    performance_metrics = {}
+    performance_metrics['accuracy'] = accuracy_score(y_test, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    performance_metrics['precision'] = tp/(tp + fp)
+    performance_metrics['recall'] = tp/(tp + fn)
+    performance_metrics['sensitivity'] = tp/(tp + fn)
+    performance_metrics['specificity'] = tn/(tn + fp)
+    performance_metrics['f1'] = 2 * performance_metrics['precision'] * performance_metrics['recall'] / (performance_metrics['precision'] + performance_metrics['recall'])
+    np.save(f'{folder}performance_metrics.npy', performance_metrics)
+    plt.clf()
+    performance_metrics_all.append(performance_metrics)
+    
+    with open(f'{folder}performance_metrics.txt', 'w') as f:
+        f.write(info)
+        f.write(json.dumps(performance_metrics))
+        
+
+    plt.plot(y_pred, label = 'pred', linestyle = 'None', markersize = 1.0, marker = '.')
+    plt.plot(y_test, label = 'test')
+    plt.title(f'Fold {i+1} test vs predicted')
+    plt.ylabel('Control (0), Insomnia (1)')
+    plt.xlabel('Test epoch')
+    plt.legend()
+    plt.rcParams["figure.figsize"] = (10,5)
+    plt.savefig(f'{folder}Fold {i+1} test vs predicted.png', dpi = 200)
+    plt.clf()
+
+    print(f"Fold {i} Acc: {performance_metrics['accuracy']}")
+    
+with open(f'{results_dir}timestamp.txt', 'a') as f:
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%Y %H.%M.%S")
+    f.write(f'\nEnd time: {dt_string}')
+
 # %%
+#model = keras.models.load_model(os.path.join('./CAP results/balanced data epoch 80 rem models/', f))
 now = datetime.now()
 dt_string = now.strftime("%d-%m-%Y %H.%M.%S")
 for m, x in zip(models, range(1, 10)):
@@ -249,9 +352,7 @@ X_test = []
 Y_train = []
 Y_test = []
 
-# Berlin. can shuffle if desired
-#insomniaIDs = [1, 2, 4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 26, 27, 41, 42, 43, 52, 53, 54, 55, 56, 57, 60, 62, 63, 64, 66, 68, 69, 70, 71, 73, 74, 75]
-#goodIDs = [3, 7, 8, 9, 10, 11, 12, 22, 24, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 44, 45, 46, 47, 48, 49, 50, 51, 59, 61, 65]
+
 
 # Code for CAP 
 # insomniaIDs = [1, 2, 3, 4, 5, 6, 7, 8, 9]
