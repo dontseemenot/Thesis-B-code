@@ -33,6 +33,7 @@ def max_num_epochs(stages):
     num_REM = stages['R']
     num_BSL = stages['W'] + stages['S1'] + stages['S2'] + stages['R']
     threshold = min(max_epochs, num_ALL, num_LSS, num_SWS, num_REM, num_BSL)
+    print(f"W {stages['W']} S1 {stages['S1']} S2 {stages['S2']} S3 {stages['S3']} S4 {stages['S4']} R {stages['R']}")
     print(f'ALL {num_ALL}, LSS {num_LSS}, SWS {num_SWS}, REM {num_REM}, BSL {num_BSL}\nChosen threshold {threshold}')
     return threshold
 
@@ -82,7 +83,6 @@ def create_model_AlexNet():
     
     optimizer = keras.optimizers.Adam(learning_rate = 0.0001)
     AlexNet.compile(optimizer = optimizer, loss = keras.losses.SparseCategoricalCrossentropy(),  metrics = ['sparse_categorical_accuracy'])
-    print(AlexNet.summary())
     return AlexNet
 
 def balance_dataset(df, threshold, subdataset):
@@ -109,6 +109,7 @@ class ReshapeToTensor():
     
     def transform(self, X, y = None):
         X = np.expand_dims(X, -1)
+        #y = np.expand_dims(y, -1)
         return X
 # A hack to plot confusion matrix with keras model
 class MyModelPredict(object):
@@ -122,16 +123,20 @@ class MyModelPredict(object):
         return y_pred
 
 
+### CHANGE THESE
+dataset = 'CAP_Overlap'
+balance = True
+subdataset = 'SWS'
+results_dir = './CAP results/reference/'
+###
 
-dataset = 'Berlin'
-balance = False
 dataPath = f'F:\\Sleep data formatted\\{dataset}.h5'
 numEpochDataPoints = 128*30
-if dataset == 'CAP_3':
-    pIDs = ['ins1', 'ins2', 'ins3', 'ins4', 'ins5', 'ins6', 'ins7', 'ins8', 'ins9', 'n1', 'n2', 'n3', 'n4', 'n5', 'n12', 'n14', 'n15', 'n16']
+if dataset == 'CAP_Overlap':
+    pIDs = ['ins1', 'ins2', 'ins3', 'ins4', 'ins5', 'ins6', 'ins7', 'ins8', 'ins9', 'n1', 'n2', 'n3', 'n4', 'n5', 'n10', 'n11', 'n12', 'n14']
     # For GroupKFold CV
-    group_dict = {'n1': 1, 'n2': 2, 'n3': 3, 'n4': 4, 'n5': 5, 'n12': 6, 'n14': 7, 'n15': 8, 'n16': 9,
-        'ins1': 1, 'ins2': 2, 'ins3': 3, 'ins4': 4, 'ins5': 5, 'ins6': 6, 'ins7': 7, 'ins8': 8, 'ins9': 9}
+    group_dict = {'n1': 1, 'n2': 10, 'n3': 10, 'n4': 4, 'n5': 5, 'n10': 6, 'n11': 7, 'n12': 8, 'n14': 9,
+        'ins1': 1, 'ins2': 10, 'ins3': 10, 'ins4': 4, 'ins5': 5, 'ins6': 6, 'ins7': 7, 'ins8': 8, 'ins9': 9}
     n_splits = 9
 elif dataset == 'Berlin':
     pIDs = [
@@ -168,12 +173,13 @@ for pID in pIDs:
     # To avoid loading all data into RAM, we load only one patient at a time
     with pd.HDFStore(dataPath) as store:
         df = store[pID]
-        pID, pClass, stages = store.get_storer(pID).attrs.metadata
+        pID, pClass, startTime, endTime, stages = (store.get_storer(pID).attrs.metadata)['overlap']
+
         if pClass == 'I' and ins_patients == max_ins_patients or pClass == 'G' and con_patients == max_con_patients:
             print(f'Rejected pid {pID}, limit reached')
         else:
             threshold = max_num_epochs(stages)
-            subdataset = 'ALL'  # Choose from All, LSS, SWS, REM, BSL
+              # Choose from All, LSS, SWS, REM, BSL
             if balance == True:
                 df = balance_dataset(df, threshold, subdataset)   # Balance distribution of 5 types of subdataset
             if pClass == 'I':
@@ -188,7 +194,7 @@ for pID in pIDs:
             [X.append(row) for row in df.iloc[:, 1:None].to_numpy()]
             [y.append(pClass_dict[pClass]) for i in range(len(df.iloc[:, 0]))]
             [groups.append(group_dict[pID]) for i in range(len(df.iloc[:, 0]))]
-            
+
             
         
 
@@ -203,23 +209,37 @@ print(f'Subdataset {subdataset}: X.shape {X.shape} Y.shape {y.shape} group.shape
 # K-fold into train and test datasets
 gkf = GroupKFold(n_splits = n_splits)
 # %%
-results_dir = './Berlin results/no overlap no balance all/'
+#### %%capture cap --no-stderr
+
+# Make directories for models, performance metrics, images, test and predicted data
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
-with open(f'{results_dir}timestamp.txt', 'w') as f:
+models_dir = f'{results_dir}/models'
+if not os.path.exists(models_dir):
+    os.makedirs(models_dir)
+performance_dir = f'{results_dir}/performance_metrics'
+if not os.path.exists(performance_dir):
+    os.makedirs(performance_dir)
+images_dir = f'{results_dir}/images'
+if not os.path.exists(images_dir):
+    os.makedirs(images_dir)
+test_pred_dir = f'{results_dir}/test_pred_npy'
+if not os.path.exists(test_pred_dir):
+    os.makedirs(test_pred_dir)
+
+with open(f'{results_dir}test_info.txt', 'w') as f:
     now = datetime.now()
     dt_string = now.strftime("%d-%m-%Y %H.%M.%S")
-    f.write(f'Start time: {dt_string}')
-#for ((train_index, test_index), iteration, f) in zip(lpgo.split(X, y, groups), range(9), os.listdir('./CAP results/balanced data epoch 80 rem models/')):
-#for train_index, test_index in lpgo.split(X, y, groups):    # returns generators
+    f.write(f'Start time: {dt_string}\nDataset: {dataset}\nSubdataset: {subdataset}\nFurther info: scaled to 0-1 range')
+
 performance_metrics_all = []
 results_all = []
 cm_all = []
 
-for (train_index, test_index), i in zip(gkf.split(X, y, groups), range(30)):
+for (train_index, test_index), i in zip(gkf.split(X, y, groups), range(100)):
     #keras.backend.image_data_format()
     #keras.backend.set_image_data_format('channels_first')
-
+    
     X_train = X[train_index].astype('float32')
     y_train = y[train_index]
     X_test = X[test_index].astype('float32')
@@ -234,44 +254,48 @@ for (train_index, test_index), i in zip(gkf.split(X, y, groups), range(30)):
     iteration = f'Train groups {train_groups}; test groups {test_groups}'
     info = f'{iteration}\nX_train {X[train_index].shape} y_train {y[train_index].shape} X_test {X[test_index].shape} y_test {y[test_index].shape}\nTrain info: {train_info} Test info: {test_info}'
     print(info)
+    train_test_name = f'Train {train_groups} Test {test_groups}'
 
-    folder = os.path.join(results_dir, f'Fold {i}/')
-    if not os.path.exists(folder):
-        os.makedirs(folder)
 
     AlexNet = KerasClassifier(build_fn = create_model_AlexNet, epochs = 80, batch_size = 256)
     pipe = Pipeline([
-        ('standardscaler', StandardScaler()),   # Scale all points in each epoch to zero mean, and feature for all epochs to have unit variance (sum to occurrences)
-        ('minmaxscaler', MaxAbsScaler()),
+        #('standardscaler', StandardScaler()),   # Scale all points in each epoch to zero mean, and feature for all epochs to have unit variance (sum to occurrences)
+        ('minmaxscaler', MinMaxScaler(feature_range = (0, 1))),
         ('reshape_to_tensor', ReshapeToTensor()),
         ('AlexNet', AlexNet)
     ])
 
     pipe.fit(X_train, y_train)
+
     y_pred = pipe.predict(X_test)
 
     # Get and save performance metrics
     
     model = pipe[-1]
-    model.model.save(f'{folder}AlexNet.h5')
+    model.model.save(f'{models_dir}{train_test_name} AlexNet.h5')
 
+    ### Load test data
+    # a = np.load(f'{folder}y_pred y_test.npy', allow_pickle = True)
+    # y_pred = a.item()['y_pred']
+    # y_test = a.item()['y_test']
+    ###
     results = {}
     results['y_pred'] = y_pred
     results['y_test'] = y_test
-    np.save(f'{folder}y_pred y_test.npy', results)
+    np.save(f'{results_dir}{train_test_name} y_pred y_test.npy', results)
     results_all.append(results)
 
     cm = confusion_matrix(y_test, y_pred)
     cm_display = ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ['Control (0)', 'Insomnia (1)']).plot(cmap = 'Blues')
     plt.title(f'Fold {i+1} confusion matrix')
-    plt.savefig(f'{folder}Fold {i+1} confusion matrix.png', dpi = 100)
+    plt.savefig(f'{images_dir}{train_test_name} CM.png', dpi = 100)
     plt.clf()
     cm_all.append(cm)
 
     cm_norm = confusion_matrix(y_test, y_pred, normalize = 'true')
     cm_display = ConfusionMatrixDisplay(confusion_matrix = cm_norm, display_labels = ['Control (0)', 'Insomnia (1)']).plot(cmap = 'Blues')
-    plt.title(f'Fold {i+1} confusion matrix')
-    plt.savefig(f'{folder}Fold {i+1} confusion matrix normalized.png', dpi = 100)
+    plt.title(f'{train_test_name} Confusion matrix')
+    plt.savefig(f'{images_dir}{train_test_name} CM normalized.png', dpi = 100)
     plt.clf()
 
     performance_metrics = {}
@@ -282,32 +306,48 @@ for (train_index, test_index), i in zip(gkf.split(X, y, groups), range(30)):
     performance_metrics['sensitivity'] = tp/(tp + fn)
     performance_metrics['specificity'] = tn/(tn + fp)
     performance_metrics['f1'] = 2 * performance_metrics['precision'] * performance_metrics['recall'] / (performance_metrics['precision'] + performance_metrics['recall'])
-    np.save(f'{folder}performance_metrics.npy', performance_metrics)
+    np.save(f'{performance_dir}{train_test_name} performance_metrics.npy', performance_metrics)
     plt.clf()
     performance_metrics_all.append(performance_metrics)
     
-    with open(f'{folder}performance_metrics.txt', 'w') as f:
+    with open(f'{performance_dir}{train_test_name} performance_metrics.txt', 'w') as f:
         f.write(info)
         f.write(json.dumps(performance_metrics))
         
 
     plt.plot(y_pred, label = 'pred', linestyle = 'None', markersize = 1.0, marker = '.')
     plt.plot(y_test, label = 'test')
-    plt.title(f'Fold {i+1} test vs predicted')
+    plt.title(f'{train_test_name} Test vs predicted')
     plt.ylabel('Control (0), Insomnia (1)')
     plt.xlabel('Test epoch')
     plt.legend()
     plt.rcParams["figure.figsize"] = (10,5)
-    plt.savefig(f'{folder}Fold {i+1} test vs predicted.png', dpi = 200)
+    plt.savefig(f'{images_dir}{train_test_name} Test vs predicted.png', dpi = 200)
     plt.clf()
 
     print(f"Fold {i} Acc: {performance_metrics['accuracy']}")
-    
+
+performance_metrics_avg = [
+    np.mean([x['accuracy'] for x in performance_metrics_all]),
+    np.mean([x['precision'] for x in performance_metrics_all]),
+    np.mean([x['recall'] for x in performance_metrics_all]),
+    np.mean([x['sensitivity'] for x in performance_metrics_all]),
+    np.mean([x['specificity'] for x in performance_metrics_all]),
+    np.mean([x['f1'] for x in performance_metrics_all])
+]
+
+np.save(f'{results_dir}performance_metrics_avg.npy', performance_metrics_avg)
+with open(f'{results_dir}performance_metrics_avg.txt', 'w') as f:
+    f.write(json.dumps(performance_metrics_avg))
+# %%
 with open(f'{results_dir}timestamp.txt', 'a') as f:
     now = datetime.now()
     dt_string = now.strftime("%d-%m-%Y %H.%M.%S")
     f.write(f'\nEnd time: {dt_string}')
-
+# %%
+# JUPYTER OUTPUT
+with open(f'{results_dir}ipython_output.txt', 'w') as f:
+    f.write(cap.stdout)
 # %%
 #model = keras.models.load_model(os.path.join('./CAP results/balanced data epoch 80 rem models/', f))
 now = datetime.now()
