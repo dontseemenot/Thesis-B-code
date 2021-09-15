@@ -63,7 +63,7 @@ def customFilter(y, fs):
     # 50Hz notch filter
     # Passband filter 0.01-50Hz.
     #print(f'Intermediate fs: {fs}, length: {len(y2)}')
-    y2 = filter_data(y2, sfreq = fs, l_freq = 0.5, h_freq = 50, l_trans_bandwidth = 0.01, h_trans_bandwidth = 0.01, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
+    # y2 = filter_data(y2, sfreq = fs, l_freq = 0.5, h_freq = 50, l_trans_bandwidth = 0.01, h_trans_bandwidth = 0.01, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
     #print(f'New fs: {fs}, length: {len(y2)}')
 
     '''
@@ -128,7 +128,7 @@ def removeArtefacts2(a):
     #print(f"len(a) = {len(a)}")
     c = []
     for epoch_a in a:
-        if all(abs(point) < 1e-5 for point in epoch_a[1]):
+        if all(abs(point) < 250e-6 for point in epoch_a[1]):
             c.append(epoch_a)
 
     #print(f"new len: {len(c)}")
@@ -401,12 +401,13 @@ for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs,
         epochData = epochData[:pid_max_epochs[pID]]
     if overlapBool == True:
         epochData = overlap(epochData, dataPointsInEpoch)
-    (sleep_stage_count) = countSleepStages([epoch[0] for epoch in epochData]) # returns W, 
+    
     if dataset == 'Berlin':
-        epochData = removeDCOffset(epochData)
         epochData = removeArtefacts2(epochData)
+        epochData = removeDCOffset(epochData)
+    (sleep_stage_count) = countSleepStages([epoch[0] for epoch in epochData]) # returns W, 
     metadata = (pID, pClass, startTime, endTime, original_fs, fs, sleep_stage_count['W'], sleep_stage_count['S1'], sleep_stage_count['S2'], sleep_stage_count['S3'], sleep_stage_count['S4'], sleep_stage_count['R'], sleep_stage_count['Other'], sleep_stage_count['All'])
-
+    print(metadata)
     metadata_list.append(metadata)
     dataCols = [f'X{x}' for x in range(1, dataPointsInEpoch + 1)]
     columns = ['Sleep_Stage', *dataCols]
@@ -420,7 +421,7 @@ for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs,
     store.close()
 
 df_meta_original = pd.DataFrame(columns = ['pID', 'pClass', 'Start time', 'End time', 'Original Fs', 'Fs', 'W', 'S1', 'S2', 'S3', 'S4', 'R', 'Other', 'Total'], data = metadata_list)
-df_meta_original.to_csv(f'F:\Sleep data formatted\{destName}_metadata.csv')
+df_meta_original.to_csv(f'E:/HDD documents/University/Thesis/Thesis B code/data/{destName}_metadata.csv')
 print('All done')
 
 # %%

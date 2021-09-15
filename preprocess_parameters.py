@@ -1,8 +1,8 @@
 # Parameters
-dataset = "Berlin"
-destName = 'Berlin_no_overlap'
-overlapBool = False
-dest_file_h5 = f'F:/Sleep data formatted/{destName}.h5'
+dataset = "CAP"
+destName = 'CAP_overlap_no_filter'
+overlapBool = True
+dest_file_h5 = f'E:/HDD documents/University/Thesis/Thesis B code/data/{destName}.h5'
 
 
 rawDirBerlin = 'F:/Thesis B insomnia data/Insomnia data/Data_Study3/Berlin PSG EDF files'

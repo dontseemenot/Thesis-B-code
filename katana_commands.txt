@@ -1,0 +1,37 @@
+screen -S "screenname"
+screen -list
+screen -r   return to screen
+check if in screen: echo $TERM
+when u request gpu, do everything inside a screen
+
+module list     list all modules in use
+vim ~/.bashrc
+
+bashrc
+module unload/load cuda/10.1
+
+interactive job: get given a gpu and do stuff on terminal. only gpu assigned to the specific screen.
+8 cpus, 46gb mem for each gpu
+qsub -I -l select=1:ncpus=8:ngpus=1:mem=46gb,walltime=1:00:00
+
+when interactive job given:
+activate venv first
+
+python "file.py" 2>&1 | tee -a "testoutput.txt"
+
+
+For getting batch job:
+qsub myjobname.pbs
+
+
+Everytime I do stuff should be in screen
+Dont do computations when no gpu
+
+ls /apps/python for python versions
+
+qsub -I     request interactive job
+
+-koed
+
+pip show "package name"       show package version installed on pip
+

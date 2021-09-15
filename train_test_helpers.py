@@ -6,6 +6,7 @@ import pandas as pd
 import os
 from sklearn.preprocessing import MinMaxScaler
 import openpyxl as pxl
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score
 
 def max_num_epochs(stages):
     max_epochs = 800
@@ -21,7 +22,7 @@ def max_num_epochs(stages):
 
 def balance_dataset(df, threshold, subdataset):
     if subdataset == 'ALL':
-        data = df
+        data = df.loc[(df['Sleep_Stage'] == 'W') | (df['Sleep_Stage'] == 'S1') | (df['Sleep_Stage'] == 'S2') | (df['Sleep_Stage'] == 'S3') | (df['Sleep_Stage'] == 'S4') | (df['Sleep_Stage'] == 'R') ]
     elif subdataset == 'LSS':
         data = df.loc[(df['Sleep_Stage'] == 'S1') |  (df['Sleep_Stage'] == 'S2')]
     elif subdataset == 'SWS':
@@ -30,6 +31,7 @@ def balance_dataset(df, threshold, subdataset):
         data = df.loc[(df['Sleep_Stage'] == 'R')]
     elif subdataset == 'BSL':
         data = df.loc[(df['Sleep_Stage'] == 'W') |  (df['Sleep_Stage'] == 'S1') | (df['Sleep_Stage'] == 'S2') | (df['Sleep_Stage'] == 'R')]
+    #print(f'data len: {len(data)}')
     data_resampled = resample(data, replace = False, n_samples = threshold, random_state = 42)
     count = data_resampled['Sleep_Stage'].value_counts()
     # print(f'After balancing:\n{count}')
@@ -105,25 +107,39 @@ def get_train_test(X, y, groups, train_index, test_index):
     train_info = dict(zip(unique, counts))
     unique, counts = np.unique(y_test, return_counts = True)
     test_info = dict(zip(unique, counts))
-    info = (
-        f'(Groups for GroupKFold only) Train groups: {unique_train_groups}; Test groups: {unique_test_groups} \n \nX_train shape: {X_train.shape}; y_train shape: {y_train.shape} \nX_test shape: {X_test.shape}; y_test shape: {y_test.shape} \nTrain class count: {train_info} \nTest class count: {test_info}'
-    )
+    info = {
+        'Train groups': str(unique_train_groups),   # To fit list into df
+        'Test groups': str(unique_test_groups),
+        'X_train.shape': str(X_train.shape),
+        'y_tarain.shape': str(y_train.shape),
+        'Train class count': str(train_info),
+        'Test class count': str(test_info)
+    }
     return X_train, y_train, X_test, y_test, groups_train, groups_test, info
     
 
 def plot_train_val_acc_loss(i, val_acc, val_loss, train_acc, train_loss, images_dir):
+    # Accuracy
     plt.rcParams["figure.figsize"] = (10,5)
-    plt.plot(val_acc, label = 'Validation accuracy', color = 'darkgreen')
-    plt.plot(val_loss, label = 'Validation loss', color = 'lawngreen')
     plt.plot(train_acc, label = 'Training accuracy', color = 'darkorange')
-    plt.plot(train_loss, label = 'Training loss', color = 'wheat')
-    plt.title(f'Fold {i} Validation and Training accuracy/loss')
-    plt.ylabel('Accuracy/loss')
+    plt.plot(val_acc, label = 'Validation accuracy', color = 'darkgreen')
+    plt.title(f'Fold {i} Validation and Training accuracy')
+    plt.ylabel('Accuracy')
     plt.xlabel('Training iteration')
-    #plt.yticks(np.arange(0, 1, 0.05))
+    plt.yticks(np.arange(0, 1, 0.05))
     plt.grid()
     plt.legend(bbox_to_anchor = (1, 1))
-    plt.savefig(f'{images_dir}/Fold {i} Training accuracy and loss.png', dpi = 200)
+    plt.savefig(f'{images_dir}/Fold {i} Training accuracy plot.png', dpi = 200)
+
+    # Validation
+    plt.plot(train_loss, label = 'Training loss', color = 'wheat')
+    plt.plot(val_loss, label = 'Validation loss', color = 'lawngreen')
+    plt.title(f'Fold {i} Validation and Training loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Training iteration')
+    plt.grid()
+    plt.legend(bbox_to_anchor = (1, 1))
+    plt.savefig(f'{images_dir}/Fold {i} Training loss plot.png', dpi = 200)
 
 def get_excel_writer(spreadsheet_file):
     return pd.ExcelWriter(spreadsheet_file, engine = 'xlsxwriter')
@@ -139,23 +155,34 @@ def save_test_info(test_info, spreadsheet_file):
     writer.save()
 
 # def save_fold_info(i, hyp_results, performance_metrics, spreadsheet_file):
-def save_fold_info(i, performance_metrics, spreadsheet_file):
+def save_fold_info(i, data_info, hyp_results, best_hyp, performance_metrics, spreadsheet_file):
     book = pxl.load_workbook(spreadsheet_file)
     writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
     writer.book = book
     writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-    # df_fold_info = pd.DataFrame(data = hyp_results['parameters'])
-    # df_fold_info['Loss'] = hyp_results['loss']
-    # df_fold_info['Loss std'] = hyp_results['loss_std']
-    # df_fold_info = df_fold_info.sort_values(by = 'Loss', ascending = True)
-    # df_fold_info.to_excel(writer, sheet_name = f'Outer Fold {i}',startrow = 2 , startcol = 0,index = False)
+
+    # Data info
+    df_info = pd.DataFrame(data = data_info, index = [0])
+    df_info.to_excel(writer, sheet_name = f'Outer Fold {i}',startrow = 0, startcol = 0,index = False)
+    offset = len(df_info) + 2
+    
+    # All hyperparameters and corresponding losses
+    df_fold_info = pd.DataFrame(data = hyp_results['parameters'])
+    df_fold_info['Loss'] = hyp_results['loss']
+    df_fold_info['Loss std'] = hyp_results['loss_std']
+    df_fold_info = df_fold_info.sort_values(by = 'Loss', ascending = True)
+    df_fold_info.to_excel(writer, sheet_name = f'Outer Fold {i}',startrow = offset, startcol = 0,index = False)
+    offset += len(df_fold_info) + 2
+
+    # Best hyperparameters
+    df_best_hyp = pd.DataFrame(data = best_hyp, index = [0])
+    df_best_hyp.to_excel(writer, sheet_name = f'Outer Fold {i}',startrow = offset, startcol = 0,index = False)
+    offset += len(df_best_hyp) + 2
 
     # Test performance
     df_performance = pd.DataFrame(data = performance_metrics, index = [0])
-    #offset = len(hyp_results['parameters'])
-    offset = 3
-    df_performance.to_excel(writer, sheet_name = f'Outer Fold {i}',startrow = offset + 5 , startcol = 0,index = False)
+    df_performance.to_excel(writer, sheet_name = f'Outer Fold {i}',startrow = offset, startcol = 0,index = False)
 
     writer.save()
 
@@ -165,7 +192,43 @@ def save_mean_results(performance_metrics_mean, spreadsheet_file):
     writer.book = book
     writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-    df_mean_results = pd.DataFrame(data = performance_metrics_mean)
-    df_mean_results = df_mean_results.transpose()
+    df_mean_results = pd.DataFrame(data = performance_metrics_mean, index = [0])
     df_mean_results.to_excel(writer, sheet_name = 'Test info', startrow = 20 , startcol = 0, index= False)
     writer.save()
+
+def plot_cm(y_pred, y_test, i, images_dir):
+    cm = confusion_matrix(y_test, y_pred)
+    cm_display = ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = ['Control (0)', 'Insomnia (1)']).plot(cmap = 'Blues')
+    plt.title(f'Fold {i} Confusion Matrix')
+    plt.savefig(f'{images_dir}/Fold {i} CM.png', dpi = 100)
+    plt.clf()
+
+    cm_norm = confusion_matrix(y_test, y_pred, normalize = 'true')
+    cm_display = ConfusionMatrixDisplay(confusion_matrix = cm_norm, display_labels = ['Control (0)', 'Insomnia (1)']).plot(cmap = 'Blues')
+    plt.title(f'Fold {i} Confusion Matrix Normalized')
+    plt.savefig(f'{images_dir}/Fold {i} Confusion Matrix Normalized.png', dpi = 100)
+    plt.clf()
+    return cm
+
+def calculate_performance_metrics(y_test, y_pred, cm):
+    performance_metrics = {}
+    performance_metrics['accuracy'] = accuracy_score(y_test, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    performance_metrics['precision'] = tp/(tp + fp)
+    performance_metrics['recall'] = tp/(tp + fn)
+    performance_metrics['sensitivity'] = tp/(tp + fn)
+    performance_metrics['specificity'] = tn/(tn + fp)
+    performance_metrics['f1'] = 2 * performance_metrics['precision'] * performance_metrics['recall'] / (performance_metrics['precision'] + performance_metrics['recall'])
+    return performance_metrics
+
+def plot_fold_test(y_pred, y_test, i, images_dir):
+
+    plt.plot(y_pred, label = 'pred', linestyle = 'None', markersize = 1.0, marker = '.')
+    plt.plot(y_test, label = 'test')
+    plt.title(f'Fold {i} Test vs predicted')
+    plt.ylabel('Control (0), Insomnia (1)')
+    plt.xlabel('Test epoch')
+    plt.legend()
+    plt.rcParams["figure.figsize"] = (10,5)
+    plt.savefig(f'{images_dir}/Fold {i} Test vs predicted.png', dpi = 200)
+    plt.clf()

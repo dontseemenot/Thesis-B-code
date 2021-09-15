@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
-from keras import regularizers
+from tensorflow.keras import regularizers
 
 # 5 CNN + 3 Dense layers
 def create_model_AlexNet(C = 0.0001, lr = 0.0001):  # Default hyperparameters
