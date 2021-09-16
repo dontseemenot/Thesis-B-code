@@ -61,9 +61,9 @@ def customFilter(y, fs):
         y2 = mne.filter.resample(y2, up = 1, down = fs/128, verbose = False)
     fs = 128
     # 50Hz notch filter
-    # Passband filter 0.01-50Hz.
+
     #print(f'Intermediate fs: {fs}, length: {len(y2)}')
-    # y2 = filter_data(y2, sfreq = fs, l_freq = 0.5, h_freq = 50, l_trans_bandwidth = 0.01, h_trans_bandwidth = 0.01, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
+    y2 = filter_data(y2, sfreq = fs, l_freq = None, h_freq = 40, l_trans_bandwidth = None, h_trans_bandwidth = 10, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
     #print(f'New fs: {fs}, length: {len(y2)}')
 
     '''
@@ -81,7 +81,7 @@ def customFilter(y, fs):
     plt.plot(frequency2, power2)
     plt.show()
     '''
-    return y2, fs
+    return y2, y, fs
 
 #5s window overlapping
 # Eg: [abcdef, ghijkl] --> [abcdef, bcdefg, cdefgh, defghi, efghij, fghijk, ghijkl]
@@ -226,7 +226,7 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     rawTimestamp = rawTimestamp.replace(tzinfo = None)  # Remove timezone info
 
     # Frequency filter
-    y, fs = customFilter(rawData, original_fs) # Low pass 50Hz filter and downsample to 128Hz
+    y, old_y, fs = customFilter(rawData, original_fs) # Low pass 50Hz filter and downsample to 128Hz
     dataPointsInEpoch = fs * 30
     epochData = []
 
@@ -316,7 +316,7 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     assert(numEpochs == i)
 
     #print(endTime)
-    return epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs
+    return epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs, old_y
 
 # def annotateDataBerlin(rawDir, stageDir, rawName, stageName):
 
@@ -388,7 +388,7 @@ elif dataset == 'CAP':
 
 # %%
 #
-# pIDs = ['IM_41 I']
+# pIDs = ['IM_01 I']
 # rawFiles = [rawDir + f'/{pID}.edf'  for pID in pIDs]
 # stageFiles = [filename for pID in pIDs for filename in os.listdir(os.path.join(stageDir, f'{pID}' + '/')) if filename.startswith('Schlafprofil')]
 # stageFiles = [stageDir + f'/{pID}/' + s for s, pID in zip(stageFiles, pIDs)]
@@ -396,7 +396,7 @@ elif dataset == 'CAP':
 metadata_list = []
 for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs, chNames, ampMults):
     print(f'Preprocessing {pID}...')
-    epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs = annotateData(rawF, stageF, pID, ch, amp, dataset)
+    epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs, old_y = annotateData(rawF, stageF, pID, ch, amp, dataset)
     if pID in pid_max_epochs:
         epochData = epochData[:pid_max_epochs[pID]]
     if overlapBool == True:

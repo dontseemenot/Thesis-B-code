@@ -130,7 +130,8 @@ def plot_train_val_acc_loss(i, val_acc, val_loss, train_acc, train_loss, images_
     plt.grid()
     plt.legend(bbox_to_anchor = (1, 1))
     plt.savefig(f'{images_dir}/Fold {i} Training accuracy plot.png', dpi = 200)
-
+    plt.clf()
+    
     # Validation
     plt.plot(train_loss, label = 'Training loss', color = 'wheat')
     plt.plot(val_loss, label = 'Validation loss', color = 'lawngreen')

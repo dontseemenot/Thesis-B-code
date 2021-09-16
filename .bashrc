@@ -54,11 +54,15 @@ alias listproc="ps -u z5165205"
 
 alias arthur="echo Arthur"
 
-alias gogogo="python train_test_main.py 2>&1 | tee -a 'testoutput.txt'"
+alias gogogo="python train_test_main.py 2>&1 | tee -a 'katanatest.txt'"
+
+alias jobs="qstat -u z5165205"
 
 alias 1g3h="qsub -I -l select=1:ncpus=8:ngpus=1:mem=46gb,walltime=3:00:00"
 alias 1g1h="qsub -I -l select=1:ncpus=8:ngpus=1:mem=46gb,walltime=1:00:00"
 alias 1g2h="qsub -I -l select=1:ncpus=8:ngpus=1:mem=46gb,walltime=2:00:00"
 alias 4g3h="qsub -I -l select=1:ncpus=32:ngpus=4:mem=184gb,walltime=2:00:00"
+alias 4g12h="qsub -I -l select=1:ncpus=32:ngpus=4:mem=184gb,walltime=12:00:00"
+alias 4g12hbatch="qsub myjob.pbs.sh"
 umask 0077
 

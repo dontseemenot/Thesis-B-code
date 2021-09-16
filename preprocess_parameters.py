@@ -1,7 +1,7 @@
 # Parameters
-dataset = "CAP"
-destName = 'CAP_overlap_no_filter'
-overlapBool = True
+dataset = "Berlin"
+destName = 'Berlin_no_overlap_filter2'
+overlapBool = False
 dest_file_h5 = f'E:/HDD documents/University/Thesis/Thesis B code/data/{destName}.h5'
 
 

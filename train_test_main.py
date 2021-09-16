@@ -17,6 +17,15 @@ from tensorflow.keras.callbacks import EarlyStopping
 from train_test_helpers import *
 from train_test_model import *
 from train_test_parameters import *
+import sys
+
+if len(sys.argv) != 4:
+    print("Incorrect usage. argv[1] = output title, argv[2] = CAP or Berlin, argv[3] = specific dataset")
+    exit()
+title = str(sys.argv[1])
+dataset = str(sys.argv[2])
+specific_dataset = str(sys.argv[3])
+
 
 np.random.seed(42)
 numEpochDataPoints = 128*30
@@ -91,7 +100,9 @@ test_info = {
     'Additional info': additional_info
 }
 save_test_info(test_info, spreadsheet_file)
-
+strategy = tf.distribute.MirroredStrategy()
+total_batch_size = batch_size * strategy.num_replicas_in_sync
+print(f'Number of devices: {strategy.num_replicas_in_sync}\nTotal batch size: {total_batch_size}')
 # %%
 performance_metrics_all = []
 results_all = []
@@ -115,7 +126,7 @@ for (train_index, test_index), i in zip(cv_outer.split(X, y, groups), range(oute
 
     if tuning == True:
         # HYPERPARAMETER TUNING VIA GRIDSEARCHCV
-        model = KerasClassifier(build_fn = create_model_AlexNet, batch_size = batch_size)
+        model = KerasClassifier(build_fn = create_model_AlexNet, batch_size = total_batch_size)
         search = GridSearchCV(estimator = model, param_grid = param_grid, n_jobs = 1, refit = True, cv = cv_inner, scoring = 'neg_log_loss') # cross-entropy loss
         search_result = search.fit(X_train, y_train, groups = groups_train)
 
@@ -133,7 +144,6 @@ for (train_index, test_index), i in zip(cv_outer.split(X, y, groups), range(oute
 
         # Retrain model using best hyperparameters found on trainval dataset
         best_model.fit(X_train, y_train, validation_data = (X_test, y_test))
-
         training_acc = best_model.model.history.history['sparse_categorical_accuracy']
         training_loss = best_model.model.history.history['loss']
         val_acc = best_model.model.history.history['val_sparse_categorical_accuracy']
@@ -141,9 +151,8 @@ for (train_index, test_index), i in zip(cv_outer.split(X, y, groups), range(oute
         plot_train_val_acc_loss(i, val_acc, val_loss, train_acc, train_loss, images_dir)
         best_model.model.save(f'{models_dir}/Fold {i} {model_name}.h5')
     else:
-
         # NO HYPERPARAMETER TUNING
-        model = KerasClassifier(build_fn = lambda: create_model_AlexNet(),  epochs = num_iterations, batch_size = batch_size)
+        model = KerasClassifier(build_fn = lambda: create_model_AlexNet(),  epochs = 80, batch_size = batch_size)
         # early_stopping = EarlyStopping(monitor='neg_log_loss', min_delta = min_delta, patience = patience)
         # train_result = AlexNet.fit(X_train, y_train, callbacks = [early_stopping])
         train_result = model.fit(X_train, y_train, validation_data = (X_test, y_test))
@@ -152,9 +161,11 @@ for (train_index, test_index), i in zip(cv_outer.split(X, y, groups), range(oute
         val_acc = train_result.model.history.history['val_sparse_categorical_accuracy']
         val_loss = train_result.model.history.history['val_loss']
         # Test data
-
+        plot_train_val_acc_loss(i, val_acc, val_loss, train_acc, train_loss, images_dir)
         model.model.save(f'{models_dir}/Fold {i} {model_name}.h5')
         best_model = model
+        hyp_results = None
+        best_hyp = None
     
     ## Load test data
     # a = np.load(f'{folder}y_pred y_test.npy', allow_pickle = True)
