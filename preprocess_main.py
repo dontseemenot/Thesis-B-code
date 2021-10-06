@@ -2,6 +2,7 @@
 import os
 import mne
 from mne.filter import filter_data, create_filter
+from mne.time_frequency import tfr_array_multitaper
 import numpy as np
 import matplotlib.pyplot as plt
 import h5py
@@ -11,9 +12,9 @@ import pandas as pd
 import tables
 from scipy import signal
 import re
-
 from preprocess_parameters import *
-
+import gc
+# %%
 def trimStartBerlin(rawData, startTime, rawTimestamp, dataPointsInEpoch, fs, lines):
     diff = int((startTime - rawTimestamp).total_seconds())
     # print("Stage: ", startTime, "| Raw: ", rawTimestamp, " | Stage - raw = ", diff)
@@ -63,7 +64,17 @@ def customFilter(y, fs):
     # 50Hz notch filter
 
     #print(f'Intermediate fs: {fs}, length: {len(y2)}')
-    y2 = filter_data(y2, sfreq = fs, l_freq = None, h_freq = 40, l_trans_bandwidth = None, h_trans_bandwidth = 10, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
+    # y2 = filter_data(y2, sfreq = fs, l_freq = None, h_freq = 40, l_trans_bandwidth = None, h_trans_bandwidth = 10, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
+
+    # Passband 0-5.40Hz filter
+    # Guidelines for EEG signal filtering from https://mne.tools/dev/auto_tutorials/preprocessing/25_background_filtering.html
+    # FIR
+    # High-pass transition band: 0.5Hz
+    # Low-pass transition band: 2Hz
+    # Zero-phase
+    # Hamming window
+
+    y2 = filter_data(y2, sfreq = fs, l_freq = 0.5, h_freq = 40, l_trans_bandwidth = 0.5, h_trans_bandwidth = 2, method = 'fir', fir_window = 'hamming', phase = 'zero', fir_design = 'firwin', verbose = False)
     #print(f'New fs: {fs}, length: {len(y2)}')
 
     '''
@@ -81,45 +92,45 @@ def customFilter(y, fs):
     plt.plot(frequency2, power2)
     plt.show()
     '''
-    return y2, y, fs
+    return y2, fs
 
 #5s window overlapping
 # Eg: [abcdef, ghijkl] --> [abcdef, bcdefg, cdefgh, defghi, efghij, fghijk, ghijkl]
-def overlap(epochData, dataPointsInEpoch):
+def overlap(epochData1D, dataPointsInEpoch):
     extraWindows = 5    # 25s overlapping windows between 30s epochs
     offset = int(dataPointsInEpoch / (extraWindows + 1))
-    epochData2 = []
+    epochData1D2 = []
     i = 0
     j = 0
-    curStage = epochData[0][0]
-    epochData2.append(epochData[0])
-    for i in range(1, len(epochData)):
+    curStage = epochData1D[0][0]
+    epochData1D2.append(epochData1D[0])
+    for i in range(1, len(epochData1D)):
     #for i in range(1, 4):  # debugging
-        if epochData[i][0] == curStage:
+        if epochData1D[i][0] == curStage:
             # Do overlap if two consecutive epochs are the same stage
-            epochCombined = np.array([*epochData[i - 1][1], *epochData[i][1]])
+            epochCombined = np.array([*epochData1D[i - 1][1], *epochData1D[i][1]])
             assert(len(epochCombined) == dataPointsInEpoch*2)
             # Do overlap
             for j in range(1, extraWindows + 1):    # j = 1 to 5
-                epochData2.append([epochData[i][0], epochCombined[j*offset: j*offset + dataPointsInEpoch]])
-            curStage = epochData[i][0]
+                epochData1D2.append([epochData1D[i][0], epochCombined[j*offset: j*offset + dataPointsInEpoch]])
+            curStage = epochData1D[i][0]
             assert(np.all(
                 epochCombined[(2*offset):(2*offset + dataPointsInEpoch)] ==
-                [*epochData2[-4][1]]))  # Sanity check
-        epochData2.append(epochData[i])
-        assert(np.all(epochData[i][1] == epochData2[-1][1]))    # Sanity check
-        curStage = epochData[i][0]
+                [*epochData1D2[-4][1]]))  # Sanity check
+        epochData1D2.append(epochData1D[i])
+        assert(np.all(epochData1D[i][1] == epochData1D2[-1][1]))    # Sanity check
+        curStage = epochData1D[i][0]
             
         
-    #print(f'len1 {len(epochData)}, len2 {len(epochData2)}')
-    return epochData2
+    #print(f'len1 {len(epochData1D)}, len2 {len(epochData1D2)}')
+    return epochData1D2
 
-# def removeArtefacts(epochData):
-#     epochData2 = [epoch for epoch in epochData if all(abs(point) <= 250e-6 for point in epoch[1])]
+# def removeArtefacts(epochData1D):
+#     epochData1D2 = [epoch for epoch in epochData1D if all(abs(point) <= 250e-6 for point in epoch[1])]
 
-#     #print('artefacts removed ', len(epochData) - len(epochData2))
+#     #print('artefacts removed ', len(epochData1D) - len(epochData1D2))
 
-#     return epochData2
+#     return epochData1D2
 
 # Given an array a and b, get indices of artefacts to remove in b, then apply to a and return a
 def removeArtefacts2(a):
@@ -134,21 +145,21 @@ def removeArtefacts2(a):
     #print(f"new len: {len(c)}")
     return c
 
-def removeDCOffset(epochData):
-    localMeans = np.mean([data for epoch in epochData for data in epoch[1]])    # mean for each epoch
+def removeDCOffset(epochData1D):
+    localMeans = np.mean([data for epoch in epochData1D for data in epoch[1]])    # mean for each epoch
     dcOffset = np.mean(localMeans)  # global mean
     #print('dcoffset ', dcOffset)
-    epochData2 = []
-    for epoch in epochData:
-        epochData2.append([epoch[0], epoch[1] - dcOffset])
-    return epochData2
+    epochData1D2 = []
+    for epoch in epochData1D:
+        epochData1D2.append([epoch[0], epoch[1] - dcOffset])
+    return epochData1D2
 
-def scale(epochData):
+def scale(epochData1D):
     scaleFactor = 4000
-    epochData2 = []
-    for epoch in epochData:
-        epochData2.append([epoch[0], epoch[1]*scaleFactor])
-    return epochData2
+    epochData1D2 = []
+    for epoch in epochData1D:
+        epochData1D2.append([epoch[0], epoch[1]*scaleFactor])
+    return epochData1D2
 
 def countSleepStages(sleep_stages_list):
     num_W = 0
@@ -187,6 +198,25 @@ def calculate_epochs_between_times(startTime, endTime):
     numEpochs = int(seconds_passed) / int(30)
     return int(numEpochs)
 
+def customTFR(y, sfreq):
+    gc.collect()
+    f_min = 0.1
+    f_max = 50.0
+    freqs = np.linspace(f_min, f_max, num = 224, endpoint = True)
+
+    n_cycles = freqs / 2
+    time_bandwidth = 3.0
+    print(f"y shape: {y.shape}")
+    y = y.reshape((1, 1, y.shape[0]))
+    print(f"y shape: {y.shape}")
+    z = tfr_array_multitaper(y, sfreq = sfreq, freqs = freqs, n_cycles=n_cycles, time_bandwidth=time_bandwidth, output = 'power')
+    x = np.arange(1, 3841, 1)
+    plt.pcolormesh(x, freqs, z, shading = 'flat', cmap = 'gray')
+    plt.title(f"BW = {time_bandwidth}")
+    plt.show()
+    plt.plot(z)
+    plt.show()
+    return z
 # rawF: File path to raw .edf file
 # stageF: File path to annotation .txt file
 # pID: patient ID
@@ -222,13 +252,15 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     assert(raw[ch][1][original_fs] == 1)   # check signal if listed frequency is true
 
     rawData = raw[ch][0][0] * amp   # For CAP data, units may not be in uV so need to correct this
+    print(f"length rawdata {len(rawData)}")
     rawTimestamp = raw.info['meas_date']
     rawTimestamp = rawTimestamp.replace(tzinfo = None)  # Remove timezone info
 
     # Frequency filter
-    y, old_y, fs = customFilter(rawData, original_fs) # Low pass 50Hz filter and downsample to 128Hz
+    y, fs = customFilter(rawData, original_fs) # Low pass 50Hz filter and downsample to 128Hz
     dataPointsInEpoch = fs * 30
-    epochData = []
+    epochData1D = []
+    epochData2D = []
 
     # Read sleep stage annotation file
     with open(stageF) as f:
@@ -248,21 +280,22 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
         stageTime = re.search('\d{2}:\d{2}:\d{2}', stageLines[22]).group()
         stageDate = re.search('\d{2}/\d{2}/\d{4}', stageLines[3]).group()
         startRecordTime = datetime.strptime(stageDate + ' ' + stageTime, '%d/%m/%Y %H:%M:%S')
-
-
         y, offset = trimStartCAP(y, startRecordTime, rawTimestamp, fs) # Ignore data at the beginning which do not contain annotations
-        epochData = []
         startIndex = 22
         i = 0
 
-    #print(i, offset)
+    # Get the TFR spectrogram 
+    #z = customTFR(y, fs)
+    z = y
     # Append the first stage, assuming it is properly labelled
     stage = re.search(regexStage, stageLines[i + startIndex + offset]).group()
     startTime = re.search(regexTime, stageLines[i + startIndex + offset]).group()
     start = i*dataPointsInEpoch
     end = (i + 1) * dataPointsInEpoch
-    amplitudeData = y[start: end]
-    epochData.append([sleepDict[stage], amplitudeData])
+    amplitudeData1D = y[start: end]
+    amplitudeData2D = z[start: end]
+    epochData1D.append([sleepDict[stage], amplitudeData1D])
+    epochData2D.append([sleepDict[stage], amplitudeData2D])
     prevTime = startTime
     i += 1
     # Should be the same for both CAP and Berlin
@@ -270,7 +303,6 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     for line in stageLines[(i + startIndex + offset): None]:
         stage = re.search(regexStage, line)
         if stage is None:
-
             pass    # Ignore lines with MCAP events or other labels
         else:
             stage = stage.group()
@@ -282,16 +314,19 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
                 for j in range(unlabelled_epochs):
                     start = i*dataPointsInEpoch
                     end = (i + 1) * dataPointsInEpoch
-                    amplitudeData = y[start: end]
-                    prev_sleepDict = epochData[-1][0]   # Use last known epoch sleep label for unlabelled epoch
+                    amplitudeData1D = y[start: end]
+                    amplitudeData2D = z[start: end]
+                    prev_sleepDict = epochData1D[-1][0]   # Use last known epoch sleep label for unlabelled epoch
                     #print(f'Appending {prev_sleepDict}')
-                    epochData.append([prev_sleepDict, amplitudeData])
+                    epochData1D.append([prev_sleepDict, amplitudeData1D])
+                    epochData2D.append([prev_sleepDict, amplitudeData2D])
                     i += 1
             
             
             start = i*dataPointsInEpoch
             end = (i + 1) * dataPointsInEpoch
-            amplitudeData = y[start: end]
+            amplitudeData1D = y[start: end]
+            amplitudeData2D = z[start: end]
             
             # If last annotated epoch was cut off early (epoch duration < 30s), cut off last epoch
             if end > len(y):
@@ -299,7 +334,8 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
                 #print("Last epoch cut off! Breaking out of loop")
                 break
             i += 1
-            epochData.append([sleepDict[stage], amplitudeData])
+            epochData1D.append([sleepDict[stage], amplitudeData1D])
+            epochData2D.append([sleepDict[stage], amplitudeData2D])
             # Get timestamp of current epoch
             endTime = re.search(regexTime, line).group() 
             prevTime = curTime
@@ -316,26 +352,8 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     assert(numEpochs == i)
 
     #print(endTime)
-    return epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs, old_y
+    return epochData1D, epochData2D, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs
 
-# def annotateDataBerlin(rawDir, stageDir, rawName, stageName):
-
-#     for line in lines[offset:None]:
-#         stage = re.search(r'Wach|Stadium 1|Stadium 2|Stadium 3|Stadium 4|Rem', line)
-
-#         start = i * dataPointsInEpoch
-#         end = (i + 1) * dataPointsInEpoch
-#         if end >= len(y2):
-#             #("Last epoch cut off! Breaking out of loop")
-#             break
-#         amplitudeData = y2[start: end]
-#         if sleepDict.get(stage) is not None:
-#             epochData.append([sleepDict[stage], amplitudeData])
-#         else:
-#             print(stage, "does not exist in sleepDict")
-
-#     # return epochData, dataPointsInEpoch, str(pID), pClass
-#     return epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs
 
 
 print(f"Dataset: {dataset} Overlap: {overlapBool}")
@@ -386,35 +404,39 @@ elif dataset == 'CAP':
     pid_max_epochs = {'n10': 351, 'n11': 362, 'n14': 767}
 
 
-# %%
 #
-# pIDs = ['IM_01 I']
-# rawFiles = [rawDir + f'/{pID}.edf'  for pID in pIDs]
-# stageFiles = [filename for pID in pIDs for filename in os.listdir(os.path.join(stageDir, f'{pID}' + '/')) if filename.startswith('Schlafprofil')]
-# stageFiles = [stageDir + f'/{pID}/' + s for s, pID in zip(stageFiles, pIDs)]
+#
+pIDs = ['IM_01 I']
+rawFiles = [rawDir + f'/{pID}.edf'  for pID in pIDs]
+stageFiles = [filename for pID in pIDs for filename in os.listdir(os.path.join(stageDir, f'{pID}' + '/')) if filename.startswith('Schlafprofil')]
+stageFiles = [stageDir + f'/{pID}/' + s for s, pID in zip(stageFiles, pIDs)]
 #
 metadata_list = []
+# %%
 for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs, chNames, ampMults):
     print(f'Preprocessing {pID}...')
-    epochData, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs, old_y = annotateData(rawF, stageF, pID, ch, amp, dataset)
-    if pID in pid_max_epochs:
-        epochData = epochData[:pid_max_epochs[pID]]
-    if overlapBool == True:
-        epochData = overlap(epochData, dataPointsInEpoch)
+    epochData1D, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs  = annotateData(rawF, stageF, pID, ch, amp, dataset)
+
+
+    # if pID in pid_max_epochs:
+    #     epochData1D = epochData1D[:pid_max_epochs[pID]]
     
-    if dataset == 'Berlin':
-        epochData = removeArtefacts2(epochData)
-        epochData = removeDCOffset(epochData)
-    (sleep_stage_count) = countSleepStages([epoch[0] for epoch in epochData]) # returns W, 
+    if overlapBool == True:
+        epochData1D = overlap(epochData1D, dataPointsInEpoch)
+    
+
+    epochData1D = removeArtefacts2(epochData1D)
+        # epochData1D = removeDCOffset(epochData1D)
+    (sleep_stage_count) = countSleepStages([epoch[0] for epoch in epochData1D]) # returns W, 
     metadata = (pID, pClass, startTime, endTime, original_fs, fs, sleep_stage_count['W'], sleep_stage_count['S1'], sleep_stage_count['S2'], sleep_stage_count['S3'], sleep_stage_count['S4'], sleep_stage_count['R'], sleep_stage_count['Other'], sleep_stage_count['All'])
     print(metadata)
     metadata_list.append(metadata)
     dataCols = [f'X{x}' for x in range(1, dataPointsInEpoch + 1)]
     columns = ['Sleep_Stage', *dataCols]
-    data = [[str(epoch[0]), *epoch[1]] for epoch in epochData]
+    data = [[str(epoch[0]), *epoch[1]] for epoch in epochData1D]
 
     df = pd.DataFrame(columns = columns, data = data)
-
+# %%
     store = pd.HDFStore(dest_file_h5)
     store.put(pID, df)
     store.get_storer(pID).attrs.metadata = {'metadata': metadata}
