@@ -3,7 +3,7 @@ from tensorflow import keras
 from tensorflow.keras import regularizers
 
 # 5 CNN + 3 Dense layers
-def create_model_AlexNet(C = 0.0001, lr = 0.0001):  # Default hyperparameters
+def create_model_AlexNet_1D(C = 0.0001, lr = 0.0001):  # Default hyperparameters
     strategy = tf.distribute.MirroredStrategy()
     with strategy.scope():
         initializer = tf.keras.initializers.HeNormal()  # Kaiming initializer

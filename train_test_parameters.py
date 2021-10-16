@@ -25,7 +25,7 @@ import argparse
 
 
 
-cmdline = False
+cmdline = True
 if cmdline == True:
     parser = get_parser()
     args = vars(parser.parse_args())
@@ -35,19 +35,19 @@ if cmdline == True:
 else:
     # Run program and specify parameters in notebook
     args = {}
-    args['title'] = 'Test job 0'
+    args['title'] = 'Test job debug'
     args['dataset'] = 'CAP'
     args['specific_dataset'] = 'CAP_overlap_filter2'
     args['subdataset'] = 'SWS'
     args['balance'] = True
-    args['method'] = 'intra'
-    args['model_name'] = 'AlexNet_2D'
+    args['method'] = 'inter'
+    args['model_name'] = 'AlexNet_1D'
     args['batch_size'] = 256
-    args['n_splits'] = 5
+    args['n_splits'] = 9
     args['param_grid'] = {
-        'lr': [0.0001],
-        'C': [0.001],
-        'epochs': [5, 7]
+        'lr': 0.0001,
+        'C': 0.0001,
+        'epochs': 80
     }
 
 
@@ -55,7 +55,10 @@ else:
 batch_size = 256
 numEpochDataPoints = 128*30 
 tuning = True
-dataPath = f'./data/{args["specific_dataset"]}/'    # File of dataset
+path_data_folder = f'./data/{args["specific_dataset"]}/'    # File of dataset
+file_metadata = f"{path_data_folder}{args['specific_dataset']}_metadata.csv"
+file_h5 = f"{path_data_folder}{args['specific_dataset']}.h5"
+path_tfr_folder = f"{path_data_folder}tfr/"
 
 if args['dataset'] == 'CAP':
     pIDs = ['ins1', 'ins2', 'ins3', 'ins4', 'ins5', 'ins6', 'ins7', 'ins8', 'ins9', 'n1', 'n2', 'n3', 'n4', 'n5', 'n10', 'n11', 'n12', 'n14']
