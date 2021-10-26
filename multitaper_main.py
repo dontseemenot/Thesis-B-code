@@ -37,13 +37,13 @@ else:
 # data = np.reshape(data1, (1, 1, 3840))
 sfreq = 128
 f_min = 0.1
-f_max = 25.6
+f_max = 40
 freqs = np.linspace(f_min, f_max, num = 256, endpoint = True)
 
-N = 6
-n_cycles = freqs    # Number of cycles in wavelet per frequency interval
+N = 5
+n_cycles = freqs/2    # Number of cycles in wavelet per frequency interval
 delta_f = 1
-time_bandwidth = N * delta_f   # 6 - 1 = 5 tapers
+time_bandwidth = N * delta_f   # 5 - 1 = 4 tapers
 
 my_dpi = 331
 matplotlib.rcParams['savefig.dpi'] = my_dpi
@@ -57,12 +57,12 @@ destination = f"./data/{args['specific_dataset']}/tfr/"
 print(f"Processing {args['pID']}...")
 
 # Load data
-with pd.HDFStore(f"./data/{args['specific_dataset']}/{args['specific_dataset']}.h5", mode = 'r') as store:
+with pd.HDFStore(f"data/{args['specific_dataset']}/{args['specific_dataset']}.h5", mode = 'r') as store:
     data = store[args['pID']]
     data = np.array(data)
     indices = np.arange(0, data.shape[0], 1)
-    #indices = np.arange(0, data.shape[0], 100)  # for debugging
-    #indices = np.arange(579, 580, 100) # for debugging
+    # indices = np.arange(0, data.shape[0], 20)  # for debugging
+    #indices = np.arange(557, 580, 100) # for debugging
     for i in indices:
         epoch = data[i][1:]
         stage = data[i][0]

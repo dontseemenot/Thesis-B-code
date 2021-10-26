@@ -33,6 +33,10 @@ def get_sleep_epochs(df, subdataset):
         data = df.loc[(df['Sleep_Stage'] == 'W') | (df['Sleep_Stage'] == 'S1') | (df['Sleep_Stage'] == 'S2') | (df['Sleep_Stage'] == 'S3') | (df['Sleep_Stage'] == 'S4') | (df['Sleep_Stage'] == 'R') ]
     elif subdataset == 'LSS':
         data = df.loc[(df['Sleep_Stage'] == 'S1') |  (df['Sleep_Stage'] == 'S2')]
+    elif subdataset == 'N1':
+        data = df.loc[(df['Sleep_Stage'] == 'S1')]
+    elif subdataset == 'N2':
+        data = df.loc[(df['Sleep_Stage'] == 'S2')]
     elif subdataset == 'SWS':
         data = df.loc[(df['Sleep_Stage'] == 'S3') |  (df['Sleep_Stage'] == 'S4')]
     elif subdataset == 'REM':
@@ -317,3 +321,34 @@ def calculate_performance_metrics(y_test, y_pred, cm, fold_num):
 #     plt.rcParams["figure.figsize"] = (10,5)
 #     plt.savefig(f'{images_dir}/Fold {i} Test vs predicted.png', dpi = 200)
 #     plt.clf()
+
+# Mimic StratifiedGroupKFold behaviour
+# i.e. achieve as even as possible of class distribution while preserving groups
+def group_greedy(df_metadata, pIDs, n_splits):
+    group_dict = {}
+    group_count_ins = {x: 0 for x in range(n_splits)}
+    group_count_con = {x: 0 for x in range(n_splits)}
+
+    df_sorted = df_metadata.sort_values(by = ['Total'], ascending = False)
+    for pID in pIDs:
+        if df_sorted.loc[df_metadata["pID"] == pID, 'pClass'].values[0] == 'I':
+            key = min(group_count_ins, key = group_count_ins.get)
+            group_count_ins[key] += df_sorted.loc[df_metadata["pID"] == pID, 'Total'].values[0]
+        elif df_sorted.loc[df_metadata["pID"] == pID, 'pClass'].values[0] == 'G':
+            key = min(group_count_con, key = group_count_con.get)
+            group_count_con[key] += df_sorted.loc[df_metadata["pID"] == pID, 'Total'].values[0] 
+        group_dict[pID] = key
+        # print(f"ins {group_count_ins} con {group_count_con}")
+        # print(f"pID {pID} assigned group {key}")
+    return group_dict
+
+
+def pipe_image(X, pipe, image_size):
+    X = X.reshape((X.shape[0], X.shape[1] * X.shape[2]))    # Flatten the 224x224 array into a 50176 long array to pass into MinMaxScaler and StandardScaler
+    X = pipe.fit_transform(X)
+    X = X.reshape((X[0], image_size, image_size, 1))    # Reconvert 50176 array into 224x224 array
+    return X
+
+# def augment(X_train, label):
+#     numEpochDataPoints
+#     X_train = GaussianNoise(stddev = std, input_shape = (numEpochDataPoints, 1)),

@@ -14,7 +14,7 @@ from scipy import signal
 import re
 from preprocess_parameters import *
 import gc
-# %%
+
 def trimStartBerlin(rawData, startTime, rawTimestamp, dataPointsInEpoch, fs, lines):
     diff = int((startTime - rawTimestamp).total_seconds())
     # print("Stage: ", startTime, "| Raw: ", rawTimestamp, " | Stage - raw = ", diff)
@@ -145,6 +145,15 @@ def removeArtefacts2(a):
     #print(f"new len: {len(c)}")
     return c
 
+def removeDCOffset2(epochData):
+    epochDataNew = []
+    means = []
+    for epoch in epochData:
+        dcOffset = np.mean(epoch[1])
+        epochDataNew.append([epoch[0], epoch[1] - dcOffset])
+        means.append(dcOffset)
+    return epochDataNew, means
+
 def removeDCOffset(epochData1D):
     localMeans = np.mean([data for epoch in epochData1D for data in epoch[1]])    # mean for each epoch
     dcOffset = np.mean(localMeans)  # global mean
@@ -260,7 +269,7 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     y, fs = customFilter(rawData, original_fs) # Low pass 50Hz filter and downsample to 128Hz
     dataPointsInEpoch = fs * 30
     epochData1D = []
-    epochData2D = []
+    # epochData2D = []
 
     # Read sleep stage annotation file
     with open(stageF) as f:
@@ -293,9 +302,9 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     start = i*dataPointsInEpoch
     end = (i + 1) * dataPointsInEpoch
     amplitudeData1D = y[start: end]
-    amplitudeData2D = z[start: end]
+    # amplitudeData2D = z[start: end]
     epochData1D.append([sleepDict[stage], amplitudeData1D])
-    epochData2D.append([sleepDict[stage], amplitudeData2D])
+    # epochData2D.append([sleepDict[stage], amplitudeData2D])
     prevTime = startTime
     i += 1
     # Should be the same for both CAP and Berlin
@@ -310,23 +319,23 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
             unlabelled_epochs = calculate_epochs_between_times(prevTime, curTime) - 1
             # Account for unlabelled epochs
             if unlabelled_epochs != 0:
-                #print(f'Unlabelled epochs = {unlabelled_epochs} for line {line}')
+                print(f'Unlabelled epochs = {unlabelled_epochs} for line {line}')
                 for j in range(unlabelled_epochs):
                     start = i*dataPointsInEpoch
                     end = (i + 1) * dataPointsInEpoch
                     amplitudeData1D = y[start: end]
-                    amplitudeData2D = z[start: end]
+                    # amplitudeData2D = z[start: end]
                     prev_sleepDict = epochData1D[-1][0]   # Use last known epoch sleep label for unlabelled epoch
                     #print(f'Appending {prev_sleepDict}')
                     epochData1D.append([prev_sleepDict, amplitudeData1D])
-                    epochData2D.append([prev_sleepDict, amplitudeData2D])
+                    # epochData2D.append([prev_sleepDict, amplitudeData2D])
                     i += 1
             
             
             start = i*dataPointsInEpoch
             end = (i + 1) * dataPointsInEpoch
             amplitudeData1D = y[start: end]
-            amplitudeData2D = z[start: end]
+            # amplitudeData2D = z[start: end]
             
             # If last annotated epoch was cut off early (epoch duration < 30s), cut off last epoch
             if end > len(y):
@@ -335,7 +344,7 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
                 break
             i += 1
             epochData1D.append([sleepDict[stage], amplitudeData1D])
-            epochData2D.append([sleepDict[stage], amplitudeData2D])
+            # epochData2D.append([sleepDict[stage], amplitudeData2D])
             # Get timestamp of current epoch
             endTime = re.search(regexTime, line).group() 
             prevTime = curTime
@@ -352,7 +361,7 @@ def annotateData(rawF, stageF, pID, ch, amp, dataset_name):
     assert(numEpochs == i)
 
     #print(endTime)
-    return epochData1D, epochData2D, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs
+    return epochData1D, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs
 
 
 
@@ -406,14 +415,14 @@ elif dataset == 'CAP':
 
 #
 #
-pIDs = ['IM_01 I']
-rawFiles = [rawDir + f'/{pID}.edf'  for pID in pIDs]
-stageFiles = [filename for pID in pIDs for filename in os.listdir(os.path.join(stageDir, f'{pID}' + '/')) if filename.startswith('Schlafprofil')]
-stageFiles = [stageDir + f'/{pID}/' + s for s, pID in zip(stageFiles, pIDs)]
+# pIDs = ['IM_01 I']
+# rawFiles = [rawDir + f'/{pID}.edf'  for pID in pIDs]
+# stageFiles = [filename for pID in pIDs for filename in os.listdir(os.path.join(stageDir, f'{pID}' + '/')) if filename.startswith('Schlafprofil')]
+# stageFiles = [stageDir + f'/{pID}/' + s for s, pID in zip(stageFiles, pIDs)]
 #
 metadata_list = []
 # %%
-for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs, chNames, ampMults):
+for i, rawF, stageF, pID, ch, amp in zip(range(1000), rawFiles, stageFiles, pIDs, chNames, ampMults):
     print(f'Preprocessing {pID}...')
     epochData1D, dataPointsInEpoch, pID, pClass, startTime, endTime, numEpochs, original_fs, fs  = annotateData(rawF, stageF, pID, ch, amp, dataset)
 
@@ -426,7 +435,22 @@ for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs,
     
 
     epochData1D = removeArtefacts2(epochData1D)
-        # epochData1D = removeDCOffset(epochData1D)
+    epochData1D, means = removeDCOffset2(epochData1D)
+    plt.hist(means, bins = 100)
+    plt.title(f"{pID}")
+    plt.xlabel("Epoch mean bef")
+    plt.savefig(f"{means_path}{pID} mean bef.png")
+    plt.clf()
+    means2 = []
+    for epoch in epochData1D:
+        means2.append(np.mean(epoch[1]))
+    plt.hist(means2, bins = 100)
+    plt.title(f"{pID}")
+    plt.xlabel("Epoch mean aft")
+    plt.savefig(f"{means_path}{pID} mean aft.png")
+    plt.clf()
+    print(f"Highest mean: {np.max(means)}")
+
     (sleep_stage_count) = countSleepStages([epoch[0] for epoch in epochData1D]) # returns W, 
     metadata = (pID, pClass, startTime, endTime, original_fs, fs, sleep_stage_count['W'], sleep_stage_count['S1'], sleep_stage_count['S2'], sleep_stage_count['S3'], sleep_stage_count['S4'], sleep_stage_count['R'], sleep_stage_count['Other'], sleep_stage_count['All'])
     print(metadata)
@@ -436,14 +460,14 @@ for i, rawF, stageF, pID, ch, amp in zip(range(100), rawFiles, stageFiles, pIDs,
     data = [[str(epoch[0]), *epoch[1]] for epoch in epochData1D]
 
     df = pd.DataFrame(columns = columns, data = data)
-# %%
+
     store = pd.HDFStore(dest_file_h5)
     store.put(pID, df)
     store.get_storer(pID).attrs.metadata = {'metadata': metadata}
     store.close()
 
 df_meta_original = pd.DataFrame(columns = ['pID', 'pClass', 'Start time', 'End time', 'Original Fs', 'Fs', 'W', 'S1', 'S2', 'S3', 'S4', 'R', 'Other', 'Total'], data = metadata_list)
-df_meta_original.to_csv(f'E:/HDD documents/University/Thesis/Thesis B code/data/{destName}_metadata.csv')
+df_meta_original.to_csv(f'{csv_path}{destName}_metadata.csv')
 print('All done')
 
 # %%
