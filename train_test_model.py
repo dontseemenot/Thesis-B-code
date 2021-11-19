@@ -66,45 +66,54 @@ def create_model_AlexNet_1D(augment, std, C, lr, dropout_cnn, dropout_dense):  #
             Activation('softmax') # Output activation is softmax
         ])
         print(AlexNet.summary())
-        # if augment == True:
-        #     data_aug = Sequential([
-        #         RandomFlip1D(input_shape = (numEpochDataPoints, 1)),
-        #         RandomGaussianNoise1D(std=std, input_shape = (numEpochDataPoints, 1))
-        #     ])
-        #     print(data_aug.summary())
-        #     AlexNet = Sequential([data_aug, AlexNet])
+        if augment != "None":
+            if augment == "All":
+                data_aug = Sequential([
+                    RandomFlip1D(input_shape = (numEpochDataPoints, 1)),
+                    RandomGaussianNoise1D(std=std, input_shape = (numEpochDataPoints, 1))
+                ])
+            elif augment == "Flip":
+                data_aug = Sequential([
+                    RandomFlip1D(input_shape = (numEpochDataPoints, 1))
+                ])
+            elif augment == "Gaussian":
+                data_aug = Sequential([
+                    RandomGaussianNoise1D(std=std, input_shape = (numEpochDataPoints, 1))
+                ])            
+            print(data_aug.summary())
+            AlexNet = Sequential([data_aug, AlexNet])
     optimizer = Adam(learning_rate = lr, epsilon = 1e-8)
     lr_metric = get_lr_metric(optimizer)
     AlexNet.compile(optimizer = optimizer, loss = SparseCategoricalCrossentropy(),  metrics = ['sparse_categorical_accuracy', lr_metric])
     # print(AlexNet.summary())
     return AlexNet
 
-def create_model_AlexNet_2D(augment = False, C = 0.0001, lr = 0.0001, std = 0.01, dropout_cnn = 0.0, dropout_dense = 0.5):
+def create_model_AlexNet_2D(augment, std, C, lr, dropout_cnn, dropout_dense):
     strategy = tf.distribute.MirroredStrategy()
     with strategy.scope():
         # initializer = tf.keras.initializers.HeNormal()  # Kaiming initializer
         input_shape = (227, 256, 1)
         cropped_shape = (227, 227, 1)
         AlexNet = Sequential([
-            Resizing(cropped_shape[0], cropped_shape[1]),    # Resize to 227 x 227, regardless if augmentation was performed or not
-            Conv2D(filters=96, kernel_size=(11,11), strides=(4,4), activation='relu', input_shape=cropped_shape, padding="valid"),
+            Resizing(cropped_shape[0], cropped_shape[1], input_shape=input_shape),    # Resize to 227 x 227, regardless if augmentation was performed or not
+            Conv2D(filters=96, kernel_size=(11,11), strides=(4,4), activation='relu', input_shape=cropped_shape, padding="same"),
             BatchNormalization(),
-            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="valid"),
+            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="same"),
 
-            Conv2D(filters=256, kernel_size=(5,5), strides=(1,1), activation='relu', padding="valid"),
+            Conv2D(filters=256, kernel_size=(5,5), strides=(1,1), activation='relu', padding="same"),
             BatchNormalization(),
-            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="valid"),
+            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="same"),
 
-            Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="valid"),
-            BatchNormalization(),
-
-            Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="valid"),
+            Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
             BatchNormalization(),
 
-            Conv2D(filters=256, kernel_size=(3,3), strides=(1,1), activation='relu', padding="valid"),
+            Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
             BatchNormalization(),
 
-            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="valid"),
+            Conv2D(filters=256, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
+            BatchNormalization(),
+
+            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="same"),
 
             Flatten(),
             Dense(4096, activation='relu'),
@@ -114,11 +123,20 @@ def create_model_AlexNet_2D(augment = False, C = 0.0001, lr = 0.0001, std = 0.01
             Dense(2, activation='softmax')
         ])
         print(AlexNet.summary())
-        if augment == True:
-            data_aug = Sequential([
-                RandomFlip2D(input_shape = input_shape),
-                RandomCrop2D(input_shape = input_shape)
-            ])
+        if augment != "None":
+            if augment == "All":
+                data_aug = Sequential([
+                    RandomFlip2D(input_shape = input_shape),
+                    RandomCrop2D(input_shape = input_shape)
+                ])
+            elif augment == "Flip":
+                data_aug = Sequential([
+                    RandomFlip2D(input_shape = input_shape)
+                ])
+            elif augment == "Crop":
+                data_aug = Sequential([
+                    RandomCrop2D(input_shape = input_shape)
+                ])
             print(data_aug.summary())
             AlexNet = Sequential([data_aug, AlexNet])
     optimizer = Adam(learning_rate = lr, epsilon = 1e-8)

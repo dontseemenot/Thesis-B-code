@@ -52,6 +52,7 @@ allowed_stages = {
     "SWS": ["S3", "S4"],
     "R": ["R"]
 }
+    
 print("Loading patient data...")
 
 # Determine which patients go in which groups
@@ -59,6 +60,8 @@ df_metadata = pd.read_csv(file_metadata)
 group_dict = group_greedy(df_metadata, pIDs, args['n_splits'])
 
 if args["model"] == "AlexNet_1D":
+    if args['subdataset'] == 'R':
+        args['subdataset'] = 'REM'
     for pID in pIDs:
         pID = str(pID)
         pClass = df_metadata.loc[df_metadata["pID"] == pID, 'pClass'].values[0]
@@ -81,7 +84,7 @@ if args["model"] == "AlexNet_1D":
             #num_frames_con += len(df)
             num_patients_con += 1
         # Because threshold can be different size, we need to append epoch data one by one to list
-
+        
         [X.append(row) for row in df.iloc[:, 1:None].to_numpy()]
         [y.append(pClass_dict[pClass]) for i in range(len(df.iloc[:, 0]))]
         [groups.append(group_dict[pID]) for i in range(len(df.iloc[:, 0]))]
@@ -133,17 +136,12 @@ assert(len(X) == len(y))
 assert(len(y) == len(groups))     
 print("All patient data loaded")
 X, y, groups = list_to_array(X, y, groups)
-print(f"y values: {y}")
 num_frames_con, num_frames_ins = np.bincount(y) 
 # X, y, groups = custom_preprocess(X, y, groups)
 # Apply class balancing
 r = Reshape2Dto1D()
-print(f"x shape {X.shape}")
-print(f"y shape {y.shape}")
-print(f"group shape {groups.shape}")
 if args['model'] == 'AlexNet_2D':
     X = r.transform(X)
-print(f"x shape {X.shape}")
 print(X[0], y[0], groups[0])
 if args['balance_class'] == True:
     X, y, groups = class_balance(X, y, groups, args['n_splits'])
@@ -152,14 +150,14 @@ if args['balance_class'] == True:
 # num_frames_con, num_frames_ins = np.bincount(y) 
 print(f"Subdataset {args['subdataset']}: X.shape {X.shape} Y.shape {y.shape} group.shape {groups.shape} I frames:{num_frames_ins} G frames:{num_frames_con} I patients:{num_patients_ins} G patients:{num_patients_con}")
 
-# %%
+
 # Make directories for fold information, models, performance metrics, images, test and predicted data
 now = datetime.now()
 dt_start = now.strftime("%d-%m-%Y %H.%M.%S")
 results_dir, models_dir, images_dir = create_dirs(args['title'], dt_start)
 
-spreadsheet_file = f'{results_dir}Result summary {dt_start}.xlsx'
-
+spreadsheet_file = f'./results/Result summaries.xlsx'
+# job_record_file = './results/Job record.xlsx'
 strategy = tf.distribute.MirroredStrategy()
 total_batch_size = args['batch_size'] * strategy.num_replicas_in_sync
 print(f'Number of devices: {strategy.num_replicas_in_sync}\nBatch size per GPU: {args["batch_size"]}\nTotal batch size: {total_batch_size}')
@@ -184,7 +182,7 @@ data_info = {
     'Insomnia': num_frames_ins,
     'Control': num_frames_con
 }
-save_parameters(args, data_info, spreadsheet_file)
+# offset = save_parameters(args, data_info, spreadsheet_file, sheet_name)
 
 # %%
 # Split data into train and test sets
@@ -221,7 +219,6 @@ for i, (train_valid_index, test_index) in zip(range(100), cv_outer.split(X, y, g
         X_train, y_train, groups_train, X_valid, y_valid, groups_valid = get_train_test2(X_train_valid, y_train_valid, groups_train_valid, train_index, valid_index)
     
     elif args['method'] == 'intra':
-        print("TRUE1!")
         cv_inner = KFold(n_splits = args['n_splits'] - 1, shuffle = True)
         train_index, valid_index = next(cv_inner.split(X_train_valid, y_train_valid, groups_train_valid))
         X_train, y_train, groups_train, X_valid, y_valid, groups_valid = get_train_test2(X_train_valid, y_train_valid, groups_train_valid, train_index, valid_index)
@@ -274,7 +271,6 @@ for i, (train_valid_index, test_index) in zip(range(100), cv_outer.split(X, y, g
     model = KerasClassifier(build_fn = build_fn, epochs = args['epochs'], batch_size = total_batch_size, augment = args['augment'], std = args['std'], C = args['C'], lr = args['lr'], dropout_cnn = args['dropout_cnn'], dropout_dense = args['dropout_dense'])
     model2 = model
     if args['model'] == "AlexNet_1D":
-
         pipe_valid = Pipeline([
             ('scale1D', scale1D()),
             ('standardscaler', StandardScaler(with_mean = True, with_std = True)),
@@ -282,7 +278,6 @@ for i, (train_valid_index, test_index) in zip(range(100), cv_outer.split(X, y, g
         ])
     elif args['model'] == "AlexNet_2D":
         pipe_valid = Pipeline([
-            
             ('standardscaler', StandardScaler(with_mean = True, with_std = True)),   # Unit variance and zero mean
             ('scale2D', scale2D()),
             ('reshapetotensor', ReshapeToTensor()),
@@ -298,81 +293,10 @@ for i, (train_valid_index, test_index) in zip(range(100), cv_outer.split(X, y, g
     # Save the best model only
     model_path=f"{results_dir}best_model.ckpt"
     mc = ModelCheckpoint(filepath=model_path, monitor='val_loss', mode='min',  save_best_only=True, save_weights_only=True)
+    
 
     model.fit(X_train, y_train, validation_data=(X_valid, y_valid), shuffle = True, callbacks = [mc])
-    # X_train, y_train, groups_train = custom_preprocess(X_train, y_train, groups_train)
-    # X_valid, y_valid, groups_valid = custom_preprocess(X_valid, y_valid, groups_valid)
-    # X_test, y_test, groups_test = custom_preprocess(X_test, y_test, groups_test)
 
-    #model.fit(X_train, y_train, validation_data=(X_valid, y_valid), shuffle = True)
-
-        
-
-
-    # elif args["loading"] == "new":
-    #     train_ds = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-    #     valid_ds = tf.data.Dataset.from_tensor_slices((X_valid, y_valid))
-    #     test_ds = tf.data.Dataset.from_tensor_slices((X_test, y_test))
-    #     print(f"Augment is {True == args['augment']}")
-
-    #     train_ds = prepare1D(train_ds, batch_size = args['batch_size'], std = args['std'], shuffle=True, augment=args['augment'])
-    #     valid_ds = prepare1D(valid_ds, batch_size = args['batch_size'], std = args['std'], shuffle=False, augment=False)
-    #     test_ds = prepare1D(test_ds, batch_size = args['batch_size'], std = args['std'], shuffle=False, augment=False)
-
-    #     model = create_model_AlexNet_1D(C = args['C'], lr = args['lr'], std = args['std'], dropout_cnn = args['dropout_cnn'], dropout_dense = args['dropout_dense'])
-    #     model.fit(
-    #         train_ds, epochs = args['epochs'], validation_data = valid_ds
-    #     )
-
-    #model = create_model_AlexNet_1D()
-    #model.fit(train_ds, validation_data=valid_ds, epochs=args['epochs'])
-
-    # pipe = Pipeline([
-    #     ('model', model)
-    # ])
-
-    # if args['augment'] == True and args['model'] == 'AlexNet_1D':
-    #     pipe = Pipeline([
-    #         ('randomflip1d', RandomFlip1D()),
-    #         ('standardscaler', StandardScaler()),   # Standardization to zero mean, unit variance
-    #         ('minmaxscaler', MinMaxScaler(feature_range = (-1, 1))), # Normalization
-
-
-    #         ('reshapetotensor', ReshapeToTensor()),
-    #         ('model', model)
-    #     ])
-    # elif args['augment'] == True and args['model'] == 'AlexNet_2D':
-    #     pipe = Pipeline([
-    #         ('standardscaler', StandardScaler()),   # Standardization to zero mean, unit variance
-    #         ('minmaxscaler', MinMaxScaler(feature_range = (-1, 1))), # Normalization
-    #         ('reshapetotensor', ReshapeToTensor()),
-    #         ('model', model)
-    #     ])
-    # else:
-    #     pipe = Pipeline([
-    #         ('standardscaler', StandardScaler()),   # Standardization to zero mean, unit variance
-    #         ('minmaxscaler', MinMaxScaler(feature_range = (-1, 1))), # Normalization
-    #         ('reshapetotensor', ReshapeToTensor()),
-    #         ('model', model)
-    #     ])
-    # We need to pipeline datasets individually, because validation data does not get pipelined
-    # if args['model'] == "AlexNet_1D":
-    #     X_train = pipe.fit_transform(X_train)
-    #     X_valid = pipe.fit_transform(X_valid)
-    #     X_test = pipe.fit_transform(X_test)
-
-    # elif args['model'] == "AlexNet_2D":
-    #     X_train = pipe_image(X_train, pipe, 227)
-    #     X_valid = pipe_image(X_valid, pipe, 227)
-    #     X_test = pipe_image(X_test, pipe, 227)
-    #     # if args['augment'] == True:
-    #     #     train_datagen = ImageDataGenerator(
-    #     #         horizontal_flip=True,  # horizontal flip
-    #     #     )  # brightness
-
-    # X_train = pipe2.fit_transform(X_train)
-    # X_valid = pipe2.fit_transform(X_valid)
-    # model.fit(X_train, y_train, validation_data = (X_valid, y_valid), epochs = args['epochs'])
 
     
     # Load best model in
@@ -382,16 +306,24 @@ for i, (train_valid_index, test_index) in zip(range(100), cv_outer.split(X, y, g
         'valid_loss' : model.model.history.history['val_loss'],
         'valid_acc' : model.model.history.history['val_sparse_categorical_accuracy']
     }
-
+    
+    np.save(f"{results_dir}fold{i}_acc_loss.npy", train_val_acc_loss)
+    # to load, do np.load(filename)
     # double check model was saved
-    print(f"Valid loss: {model.model.history.history['val_loss']}, valid acc: {model.model.history.history['val_sparse_categorical_accuracy']}")
+    print(f"All valid loss: {model.model.history.history['val_loss']}\nall valid acc: {model.model.history.history['val_sparse_categorical_accuracy']}")
     # model2
+    min_valid_loss = np.min(train_val_acc_loss['valid_loss'])
+    index = np.argmin(train_val_acc_loss['valid_loss'])
+    corr_valid_acc = train_val_acc_loss['valid_acc'][index]
+    
+    print(f"Min valid loss: {min_valid_loss} with valid acc {corr_valid_acc} at index {index}")
+    print("Loading best model...")
     model.model.load_weights(model_path)
     # # model.model.load_weights(model_path)
     # print("Loaded best model and checking validation acc")
     valid_pred = model2.predict(X_valid) # 531,
     # y_valid has shape 531, 1
-    print(f"best valid loss with accuracy: {accuracy_score(y_valid, valid_pred)}")
+    print(f"Chosen best model valid accuracy: {accuracy_score(y_valid, valid_pred)}")
 
 
     # TEST
@@ -400,31 +332,47 @@ for i, (train_valid_index, test_index) in zip(range(100), cv_outer.split(X, y, g
     cm = plot_cm(y_pred, y_test, fold_num, images_dir)
     performance_metrics = calculate_performance_metrics(y_test, y_pred, cm, fold_num)
 
-    save_fold_results(epoch_counts, performance_metrics, fold_num, spreadsheet_file)
+    save_fold_results(epoch_counts, performance_metrics, fold_num, spreadsheet_file, sheet_name)
     plot_train_val_acc_loss2(train_val_acc_loss, fold_num, images_dir)
 
     performance_metrics_all.append(performance_metrics)
     fold_num += 1
-
+    # Delete saved model
+    for fname in os.listdir(results_dir):
+        if fname.startswith("best_model.ckpt"):
+            # os.replace(f"{results_dir}{fname}", f"./models/{args['title']}{fname}")
+            os.remove(os.path.join(results_dir, fname))
 
 # Average performance over all folds
 performance_metrics_mean = {
-    'Accuracy': np.mean([x['accuracy'] for x in performance_metrics_all]),
-    'Precision': np.mean([x['precision'] for x in performance_metrics_all]),
-    'Recall': np.mean([x['recall'] for x in performance_metrics_all]),
-    'Sensitivity': np.mean([x['sensitivity'] for x in performance_metrics_all]),
-    'Specificity': np.mean([x['specificity'] for x in performance_metrics_all]),
-    'F1': np.mean([x['f1'] for x in performance_metrics_all])
+    'accuracy': np.mean([x['accuracy'] for x in performance_metrics_all]),
+    'accuracy_std': np.std([x['accuracy'] for x in performance_metrics_all]),
+    'precision': np.mean([x['precision'] for x in performance_metrics_all]),
+    'precision_std': np.std([x['precision'] for x in performance_metrics_all]),
+    'recall': np.mean([x['recall'] for x in performance_metrics_all]),
+    'recall_std': np.std([x['recall'] for x in performance_metrics_all]),
+    'sensitivity': np.mean([x['sensitivity'] for x in performance_metrics_all]),
+    'sensitivity_std': np.std([x['sensitivity'] for x in performance_metrics_all]),
+    'specificity': np.mean([x['specificity'] for x in performance_metrics_all]),
+    'specificity_std': np.std([x['specificity'] for x in performance_metrics_all]),
+    'f1': np.mean([x['f1'] for x in performance_metrics_all]),
+    'f1_std': np.std([x['f1'] for x in performance_metrics_all])
 }
-
 now = datetime.now()
 dt_end = now.strftime("%d-%m-%Y %H.%M.%S")
 timestamps = {
     "start": dt_start,
     "end": dt_end
 }
-save_mean_results(performance_metrics_mean, timestamps, spreadsheet_file)
-print(f"All testing completed with average test accuracy: {performance_metrics_mean['Accuracy']}\nStart: {dt_start} End: {dt_end}")
+# save_mean_results(performance_metrics_mean, timestamps, spreadsheet_file, sheet_name)
+append_summary(args, performance_metrics_mean, timestamps, args['number'], spreadsheet_file, "Summaries")
+
+
+
+
+
+
+print(f"All testing completed with average test accuracy: {performance_metrics_mean['accuracy']}\nStart: {dt_start} End: {dt_end}")
 # %%
 
 
@@ -528,3 +476,76 @@ print(f"All testing completed with average test accuracy: {performance_metrics_m
 #     out = flip(X_train[0])
 #     plt.plot(out)
 # %%
+    # X_train, y_train, groups_train = custom_preprocess(X_train, y_train, groups_train)
+    # X_valid, y_valid, groups_valid = custom_preprocess(X_valid, y_valid, groups_valid)
+    # X_test, y_test, groups_test = custom_preprocess(X_test, y_test, groups_test)
+
+    #model.fit(X_train, y_train, validation_data=(X_valid, y_valid), shuffle = True)
+
+        
+
+
+    # elif args["loading"] == "new":
+    #     train_ds = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+    #     valid_ds = tf.data.Dataset.from_tensor_slices((X_valid, y_valid))
+    #     test_ds = tf.data.Dataset.from_tensor_slices((X_test, y_test))
+    #     print(f"Augment is {True == args['augment']}")
+
+    #     train_ds = prepare1D(train_ds, batch_size = args['batch_size'], std = args['std'], shuffle=True, augment=args['augment'])
+    #     valid_ds = prepare1D(valid_ds, batch_size = args['batch_size'], std = args['std'], shuffle=False, augment=False)
+    #     test_ds = prepare1D(test_ds, batch_size = args['batch_size'], std = args['std'], shuffle=False, augment=False)
+
+    #     model = create_model_AlexNet_1D(C = args['C'], lr = args['lr'], std = args['std'], dropout_cnn = args['dropout_cnn'], dropout_dense = args['dropout_dense'])
+    #     model.fit(
+    #         train_ds, epochs = args['epochs'], validation_data = valid_ds
+    #     )
+
+    #model = create_model_AlexNet_1D()
+    #model.fit(train_ds, validation_data=valid_ds, epochs=args['epochs'])
+
+    # pipe = Pipeline([
+    #     ('model', model)
+    # ])
+
+    # if args['augment'] == True and args['model'] == 'AlexNet_1D':
+    #     pipe = Pipeline([
+    #         ('randomflip1d', RandomFlip1D()),
+    #         ('standardscaler', StandardScaler()),   # Standardization to zero mean, unit variance
+    #         ('minmaxscaler', MinMaxScaler(feature_range = (-1, 1))), # Normalization
+
+
+    #         ('reshapetotensor', ReshapeToTensor()),
+    #         ('model', model)
+    #     ])
+    # elif args['augment'] == True and args['model'] == 'AlexNet_2D':
+    #     pipe = Pipeline([
+    #         ('standardscaler', StandardScaler()),   # Standardization to zero mean, unit variance
+    #         ('minmaxscaler', MinMaxScaler(feature_range = (-1, 1))), # Normalization
+    #         ('reshapetotensor', ReshapeToTensor()),
+    #         ('model', model)
+    #     ])
+    # else:
+    #     pipe = Pipeline([
+    #         ('standardscaler', StandardScaler()),   # Standardization to zero mean, unit variance
+    #         ('minmaxscaler', MinMaxScaler(feature_range = (-1, 1))), # Normalization
+    #         ('reshapetotensor', ReshapeToTensor()),
+    #         ('model', model)
+    #     ])
+    # We need to pipeline datasets individually, because validation data does not get pipelined
+    # if args['model'] == "AlexNet_1D":
+    #     X_train = pipe.fit_transform(X_train)
+    #     X_valid = pipe.fit_transform(X_valid)
+    #     X_test = pipe.fit_transform(X_test)
+
+    # elif args['model'] == "AlexNet_2D":
+    #     X_train = pipe_image(X_train, pipe, 227)
+    #     X_valid = pipe_image(X_valid, pipe, 227)
+    #     X_test = pipe_image(X_test, pipe, 227)
+    #     # if args['augment'] == True:
+    #     #     train_datagen = ImageDataGenerator(
+    #     #         horizontal_flip=True,  # horizontal flip
+    #     #     )  # brightness
+
+    # X_train = pipe2.fit_transform(X_train)
+    # X_valid = pipe2.fit_transform(X_valid)
+    # model.fit(X_train, y_train, validation_data = (X_valid, y_valid), epochs = args['epochs'])

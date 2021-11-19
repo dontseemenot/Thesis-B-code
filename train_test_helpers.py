@@ -46,9 +46,13 @@ class scale2D():
     def fit(self, X, y = None):
         return self
     def transform(self, X, y = None):
-        X = X/256
-        assert(np.max(X) <= 1.0)
-        assert(np.min(X) >= 0.0)
+        print(X.dtype)
+        X = X.astype(np.float32)
+        X = X/256.0
+        print(np.max(X))
+        print(np.min(X))
+        # assert(np.max(X) <= 1.0)
+        # assert(np.min(X) >= 0.0)
         return X
 
 # A hack to plot confusion matrix with keras model
@@ -156,10 +160,14 @@ def class_balance(X, y, groups, n_splits):
     groups_bal = []
     ros = RandomOverSampler(random_state=42, sampling_strategy = 'minority')
     for group in range(n_splits):
-        # print(f"group {group}")
+        print(f"balancing group {group}")
         group_index = np.where(groups == group)
         X_group = X[group_index]
         y_group = y[group_index]
+        print(np.max(X_group))
+        print(np.min(X_group))
+        print(f"x shape {X_group.shape}")
+        print(f"y shape {y_group.shape}")
         X_res, y_res = ros.fit_resample(X_group, y_group)
         for a, b in zip(X_res, y_res):
             X_bal.append(a)
@@ -201,36 +209,48 @@ def create_dirs(title, dt_string):
         os.makedirs(images_dir)
     return results_dir, models_dir, images_dir
 
+# Initial params
+def save_parameters(args, data_info, spreadsheet_file, sheet_name):
+    book = pxl.load_workbook(spreadsheet_file)
+    writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
+    writer.book = book
+    writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-def save_parameters(args, data_info, spreadsheet_file):
-    writer = pd.ExcelWriter(spreadsheet_file, engine='xlsxwriter')   
-    workbook=writer.book
-    worksheet=workbook.add_worksheet('Test info')
-    writer.sheets['Test info'] = worksheet
+    # writer = pd.ExcelWriter(spreadsheet_file, engine='xlsxwriter')   
+    # workbook=writer.book
+    # worksheet=workbook.add_worksheet(sheet_name)
+    # writer.sheets[sheet_name] = worksheet
+    offset = 0
+    df_args = pd.DataFrame(data = args, index = [0])
+    df_args.to_excel(writer, sheet_name = sheet_name, startrow = 1 , startcol = 0, index = False)
 
-    df_args = pd.DataFrame.from_dict(args, orient = 'index')
-    df_args.to_excel(writer, sheet_name = 'Test info',startrow = 1 , startcol = 0, header = False)
-
-    offset = len(df_args) + 2
-    df_data_info = pd.DataFrame.from_dict(data_info, orient = 'index')
-    df_data_info.to_excel(writer, sheet_name = 'Test info',startrow = offset, startcol = 0)
+    offset = len(df_args) + 3
+    df_data_info = pd.DataFrame(data_info, index = [0])
+    df_data_info.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index = False)
+    offset += len(df_args) + 3
     writer.save()
+    return offset
 
-def save_mean_results(performance_metrics_mean, timestamps, spreadsheet_file):
+# Mean results saved at the end of program
+def save_mean_results(performance_metrics_mean, timestamps, spreadsheet_file, sheet_name, offset):
     book = pxl.load_workbook(spreadsheet_file)
     writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
     writer.book = book
     writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
     df_mean_results = pd.DataFrame(data = performance_metrics_mean, index = [0])
-    df_mean_results.to_excel(writer, sheet_name = 'Test info', startrow = 20 , startcol = 0, index= False)
+    df_mean_results.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index= False)
+    offset += len(df_mean_results) + 3
 
     df_timestamps = pd.DataFrame(data = timestamps, index = [0])
-    df_timestamps.to_excel(writer, sheet_name = 'Test info', startrow = 24 , startcol = 0, index= False)
+    df_timestamps.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index= False)
+    offset += len(df_timestamps) + 3
 
     writer.save()
+    return offset
 
-def save_fold_results(epoch_counts, performance_metrics, fold_num, spreadsheet_file):
+# Fold results
+def save_fold_results(epoch_counts, performance_metrics, fold_num, spreadsheet_file, sheet_name):
     book = pxl.load_workbook(spreadsheet_file)
     writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
     writer.book = book
@@ -241,7 +261,24 @@ def save_fold_results(epoch_counts, performance_metrics, fold_num, spreadsheet_f
     header = True if fold_num == 0 else None
     offset = 0 if fold_num == 0 else 1
     df_performance = pd.DataFrame(data = info, index = [0])
-    df_performance.to_excel(writer, sheet_name = 'Fold info', startrow = fold_num + offset , startcol = 0, index= False, header = header)
+    df_performance.to_excel(writer, sheet_name = sheet_name, startrow = offset + fold_num, startcol = 0, index= False, header = header)
+    writer.save()
+
+def append_summary(args, performance_metrics_mean, timestamps, number, spreadsheet_file, sheet_name):
+    book = pxl.load_workbook(spreadsheet_file)
+    writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
+    writer.book = book
+    writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
+
+    data = {**args, **performance_metrics_mean, **timestamps}
+    df = pd.DataFrame(data = data, index = [0])
+    df.to_excel(writer, sheet_name = sheet_name,startrow = number + 1, startcol = 0, header = False, index = False)
+
+
+    # df_performance.to_excel(writer, sheet_name = sheet_name, startrow = number + 1 , startcol = 18, index= False, header = False)
+
+    # df_number = pd.DataFrame(data = [number])
+    # df_number.to_excel(writer, sheet_name = sheet_name, startrow = number + 1, startcol = 1, index = False, header = False)
     writer.save()
 
 def calculate_performance_metrics(y_test, y_pred, cm, fold_num):
@@ -267,9 +304,9 @@ def plot_train_val_acc_loss2(train_val_acc_loss, fold_num, images_dir):
     plt.title(f'Best model Accuracy')
     plt.ylabel('Accuracy')
     plt.xlabel('Training epoch')
-    plt.yticks(np.arange(0, 1, 0.05))
+    plt.yticks(np.linspace(0, 1, num=21))
     plt.grid()
-    plt.legend(loc=5)
+    plt.legend(loc=4)   # lower right
     plt.savefig(f'{images_dir}/Fold {fold_num} train val acc.png', dpi = 200, bbox_inches='tight')
     plt.clf()
     
@@ -281,8 +318,9 @@ def plot_train_val_acc_loss2(train_val_acc_loss, fold_num, images_dir):
     plt.ylabel('Loss')
     plt.xlabel('Training epoch')
     plt.grid()
-    plt.legend(loc=5)
+    plt.legend(loc=1)   # top right
     plt.savefig(f'{images_dir}/Fold {fold_num} train val loss.png', dpi = 200, bbox_inches='tight')
+    plt.clf()
 
 def plot_cm(y_pred, y_test, fold_num, images_dir):
     cm = confusion_matrix(y_test, y_pred)
@@ -298,8 +336,14 @@ def plot_cm(y_pred, y_test, fold_num, images_dir):
     plt.clf()
     return cm
 
-
-
+'''
+OTHERS
+'''
+def scheduler(epoch, lr):
+  if epoch < 10:
+    return lr
+  else:
+    return lr * tf.math.exp(-0.1)
 
 
 
