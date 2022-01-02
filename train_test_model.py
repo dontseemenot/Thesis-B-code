@@ -96,13 +96,13 @@ def create_model_AlexNet_2D(augment, std, C, lr, dropout_cnn, dropout_dense):
         cropped_shape = (227, 227, 1)
         AlexNet = Sequential([
             Resizing(cropped_shape[0], cropped_shape[1], input_shape=input_shape),    # Resize to 227 x 227, regardless if augmentation was performed or not
-            Conv2D(filters=96, kernel_size=(11,11), strides=(4,4), activation='relu', input_shape=cropped_shape, padding="same"),
+            Conv2D(filters=96, kernel_size=(11,11), strides=(4,4), activation='relu', input_shape=cropped_shape, padding="valid"),
             BatchNormalization(),
-            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="same"),
+            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="valid"),
 
             Conv2D(filters=256, kernel_size=(5,5), strides=(1,1), activation='relu', padding="same"),
             BatchNormalization(),
-            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="same"),
+            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="valid"),
 
             Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
             BatchNormalization(),
@@ -113,7 +113,7 @@ def create_model_AlexNet_2D(augment, std, C, lr, dropout_cnn, dropout_dense):
             Conv2D(filters=256, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
             BatchNormalization(),
 
-            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="same"),
+            MaxPool2D(pool_size=(3,3), strides=(2,2), padding="valid"),
 
             Flatten(),
             Dense(4096, activation='relu'),

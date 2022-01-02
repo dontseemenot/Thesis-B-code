@@ -5,6 +5,8 @@ Set parameters here
 def get_parser():
     parser = argparse.ArgumentParser()
     # Model and dataset parameters
+    parser.add_argument("--spreadsheet")
+    parser.add_argument("--spreadsheet2")
     parser.add_argument("--title", help = "Give a name for the job and output file")
     parser.add_argument("--number")
     parser.add_argument("--model", help = "Which model to use. Choose from AlexNet_1D")
@@ -39,7 +41,7 @@ import argparse
 
 
 
-cmdline = True
+cmdline = False
 if cmdline == True:
     parser = get_parser()
     args = vars(parser.parse_args())
@@ -58,20 +60,22 @@ if cmdline == True:
 else:
     # Run program and specify parameters in notebook
     args = {}
-    args['title'] = 'Testexcel2'
+    args['spreadsheet'] = "TestName2"
+    args['spreadsheet2'] = "Patient level classification"
+    args['title'] = 'test123'
     args['number'] = 1
-    args['dataset'] = 'CAP'
-    args['specific_dataset'] = 'CAP_no_overlap_filter2'
+    args['dataset'] = 'Berlin'
+    args['specific_dataset'] = 'Berlin3_no_overlap_filter2'
     args['subdataset'] = 'SWS'
     args['balance_stage'] = False
     args['balance_class'] = True
-    args['method'] = 'intra'
+    args['method'] = 'inter'
     args['model'] = 'AlexNet_1D'
     args['batch_size'] = 256
     args['n_splits'] = 9
     args['C'] = 0.0001
     args['lr'] = 0.0001
-    args['epochs'] = 5
+    args['epochs'] = 10
     args['std'] = 0.01
     args['dropout_cnn'] = 0.01
     args['dropout_dense'] = 0.5

@@ -16,6 +16,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.datasets import fetch_openml
 from imblearn.over_sampling import RandomOverSampler
 import gc
+import psutil
 '''
 PREPROCESSING RELATED HELPERS
 '''
@@ -47,8 +48,15 @@ class scale2D():
         return self
     def transform(self, X, y = None):
         print(X.dtype)
-        X = X.astype(np.float32)
-        X = X/256.0
+        print("transform begin")
+        mem_usage()
+        # for i in X:
+        #     for j in i:
+        #         X[i][j] /= 255 
+        
+        X = np.divide(X, 255, out=X)
+        print("transform after")
+        mem_usage()
         print(np.max(X))
         print(np.min(X))
         # assert(np.max(X) <= 1.0)
@@ -94,10 +102,12 @@ class Reshape1Dto2D(BaseEstimator, TransformerMixin):
 # i.e. achieve as even as possible of class distribution while preserving groups
 def group_greedy(df_metadata, pIDs, n_splits):
     group_dict = {}
+    sample_PID_dict = {}
     group_count_ins = {x: 0 for x in range(n_splits)}
     group_count_con = {x: 0 for x in range(n_splits)}
 
-    df_sorted = df_metadata.sort_values(by = ['Total'], ascending = False)
+    df_sorted = df_metadata.sort_values(by = ['Total'], ascending = False)  # Sort data by patient with most samples (this doesn't do anything I realised later)
+    i = 1
     for pID in pIDs:
         if df_sorted.loc[df_metadata["pID"] == pID, 'pClass'].values[0] == 'I':
             key = min(group_count_ins, key = group_count_ins.get)
@@ -106,9 +116,11 @@ def group_greedy(df_metadata, pIDs, n_splits):
             key = min(group_count_con, key = group_count_con.get)
             group_count_con[key] += df_sorted.loc[df_metadata["pID"] == pID, 'Total'].values[0] 
         group_dict[pID] = key
-        # print(f"ins {group_count_ins} con {group_count_con}")
-        # print(f"pID {pID} assigned group {key}")
-    return group_dict
+        sample_PID_dict[pID] = i
+        i += 1
+        print(f"ins {group_count_ins} con {group_count_con}")
+        print(f"pID {pID} assigned group {key}")
+    return group_dict, sample_PID_dict
 
 # Calculate threshold for number of epochs
 def max_num_epochs(stages):
@@ -158,12 +170,14 @@ def class_balance(X, y, groups, n_splits):
     X_bal = []
     y_bal = []
     groups_bal = []
+    sample_PID_bal = []
     ros = RandomOverSampler(random_state=42, sampling_strategy = 'minority')
-    for group in range(n_splits):
+    for group in np.unique(groups):
         print(f"balancing group {group}")
         group_index = np.where(groups == group)
         X_group = X[group_index]
         y_group = y[group_index]
+        print(X_group.shape)
         print(np.max(X_group))
         print(np.min(X_group))
         print(f"x shape {X_group.shape}")
@@ -174,16 +188,25 @@ def class_balance(X, y, groups, n_splits):
             y_bal.append(b)
             groups_bal.append(group)
         # print(f"{np.bincount(y_res)}")
+    X_bal = np.asarray(X_bal)
+    y_bal = np.asarray(y_bal)
+    groups_bal = np.asarray(groups_bal)
+    return X_bal, y_bal, groups_bal
 
-    return list_to_array(X_bal, y_bal, groups_bal)
 
-def list_to_array(a, b, c):
-    a = np.asarray(a)
-    b = np.asarray(b)
-    c = np.asarray(c)
-    return a, b, c
+def get_train_test2(X, y, groups, sample_PID, train_index, test_index):
+    X_train = X[train_index].astype('float32')
+    y_train = y[train_index]
+    X_test = X[test_index].astype('float32')
+    y_test = y[test_index]
+    groups_train = groups[train_index]
+    groups_test = groups[test_index]
+    sample_PID_train = sample_PID[train_index]
+    sample_PID_test = sample_PID[test_index]
 
-def get_train_test2(X, y, groups, train_index, test_index):
+    return X_train, y_train, groups_train, sample_PID_train, X_test, y_test, groups_test, sample_PID_test
+
+def get_train_test3(X, y, groups, train_index, test_index):
     X_train = X[train_index].astype('float32')
     y_train = y[train_index]
     X_test = X[test_index].astype('float32')
@@ -212,87 +235,132 @@ def create_dirs(title, dt_string):
 # Initial params
 def save_parameters(args, data_info, spreadsheet_file, sheet_name):
     book = pxl.load_workbook(spreadsheet_file)
-    writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
-    writer.book = book
-    writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
+    with pd.ExcelWriter(spreadsheet_file, engine='openpyxl') as writer: 
+        writer.book = book
+        writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-    # writer = pd.ExcelWriter(spreadsheet_file, engine='xlsxwriter')   
-    # workbook=writer.book
-    # worksheet=workbook.add_worksheet(sheet_name)
-    # writer.sheets[sheet_name] = worksheet
-    offset = 0
-    df_args = pd.DataFrame(data = args, index = [0])
-    df_args.to_excel(writer, sheet_name = sheet_name, startrow = 1 , startcol = 0, index = False)
+        # writer = pd.ExcelWriter(spreadsheet_file, engine='xlsxwriter')   
+        # workbook=writer.book
+        # worksheet=workbook.add_worksheet(sheet_name)
+        # writer.sheets[sheet_name] = worksheet
+        offset = 0
+        df_args = pd.DataFrame(data = args, index = [0])
+        df_args.to_excel(writer, sheet_name = sheet_name, startrow = 1 , startcol = 0, index = False)
 
-    offset = len(df_args) + 3
-    df_data_info = pd.DataFrame(data_info, index = [0])
-    df_data_info.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index = False)
-    offset += len(df_args) + 3
-    writer.save()
+        offset = len(df_args) + 3
+        df_data_info = pd.DataFrame(data_info, index = [0])
+        df_data_info.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index = False)
+        offset += len(df_args) + 3
     return offset
 
 # Mean results saved at the end of program
 def save_mean_results(performance_metrics_mean, timestamps, spreadsheet_file, sheet_name, offset):
     book = pxl.load_workbook(spreadsheet_file)
-    writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
-    writer.book = book
-    writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
+    with pd.ExcelWriter(spreadsheet_file, engine='openpyxl') as writer:
+        writer.book = book
+        writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-    df_mean_results = pd.DataFrame(data = performance_metrics_mean, index = [0])
-    df_mean_results.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index= False)
-    offset += len(df_mean_results) + 3
+        df_mean_results = pd.DataFrame(data = performance_metrics_mean, index = [0])
+        df_mean_results.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index= False)
+        offset += len(df_mean_results) + 3
 
-    df_timestamps = pd.DataFrame(data = timestamps, index = [0])
-    df_timestamps.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index= False)
-    offset += len(df_timestamps) + 3
+        df_timestamps = pd.DataFrame(data = timestamps, index = [0])
+        df_timestamps.to_excel(writer, sheet_name = sheet_name, startrow = offset, startcol = 0, index= False)
+        offset += len(df_timestamps) + 3
 
-    writer.save()
     return offset
 
 # Fold results
 def save_fold_results(epoch_counts, performance_metrics, fold_num, spreadsheet_file, sheet_name):
     book = pxl.load_workbook(spreadsheet_file)
-    writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
-    writer.book = book
-    writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
+    with pd.ExcelWriter(spreadsheet_file, engine='openpyxl') as writer:
+        writer.book = book
+        writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-    info = {**epoch_counts, **performance_metrics}
+        info = {**epoch_counts, **performance_metrics}
 
-    header = True if fold_num == 0 else None
-    offset = 0 if fold_num == 0 else 1
-    df_performance = pd.DataFrame(data = info, index = [0])
-    df_performance.to_excel(writer, sheet_name = sheet_name, startrow = offset + fold_num, startcol = 0, index= False, header = header)
-    writer.save()
+        header = True if fold_num == 0 else None
+        offset = 0 if fold_num == 0 else 1
+        df_performance = pd.DataFrame(data = info, index = [0])
+        df_performance.to_excel(writer, sheet_name = sheet_name, startrow = offset + fold_num, startcol = 0, index= False, header = header)
+
+
 
 def append_summary(args, performance_metrics_mean, timestamps, number, spreadsheet_file, sheet_name):
     book = pxl.load_workbook(spreadsheet_file)
-    writer = pd.ExcelWriter(spreadsheet_file, engine='openpyxl') 
-    writer.book = book
-    writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
+    with pd.ExcelWriter(spreadsheet_file, engine='openpyxl') as writer:
+        writer.book = book
+        writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
 
-    data = {**args, **performance_metrics_mean, **timestamps}
-    df = pd.DataFrame(data = data, index = [0])
-    df.to_excel(writer, sheet_name = sheet_name,startrow = number + 1, startcol = 0, header = False, index = False)
+        data = {**args, **performance_metrics_mean, **timestamps}
+        df = pd.DataFrame(data = data, index = [0])
+        df.to_excel(writer, sheet_name = sheet_name,startrow = number + 1, startcol = 0, header = False, index = False)
 
 
     # df_performance.to_excel(writer, sheet_name = sheet_name, startrow = number + 1 , startcol = 18, index= False, header = False)
 
     # df_number = pd.DataFrame(data = [number])
     # df_number.to_excel(writer, sheet_name = sheet_name, startrow = number + 1, startcol = 1, index = False, header = False)
-    writer.save()
+
+def calculate_per_patient_metrics(y_test, y_pred, sample_PID_test):
+    pIDs = np.unique(sample_PID_test)
 
 def calculate_performance_metrics(y_test, y_pred, cm, fold_num):
     performance_metrics = {}
     #performance_metrics['fold'] = fold_num
     performance_metrics['accuracy'] = accuracy_score(y_test, y_pred)
     tn, fp, fn, tp = cm.ravel()
-    performance_metrics['precision'] = tp/(tp + fp)
-    performance_metrics['recall'] = tp/(tp + fn)
-    performance_metrics['sensitivity'] = tp/(tp + fn)
-    performance_metrics['specificity'] = tn/(tn + fp)
-    performance_metrics['f1'] = 2 * performance_metrics['precision'] * performance_metrics['recall'] / (performance_metrics['precision'] + performance_metrics['recall'])
+    print(tn, fp, fn, tp)
+
+    # To prevent nan values when dividing
+    if tp == 0 and tn != 0:
+        print("tp 0, tn != 0")
+        performance_metrics['precision'] = 0
+        performance_metrics['recall'] = 0
+        performance_metrics['sensitivity'] = 0
+        performance_metrics['specificity'] = tn/(tn + fp)
+        performance_metrics['f1'] = 0
+
+
+    elif tp != 0 and tn == 0:
+        print("tp != 0, tn = 0")
+
+        performance_metrics['precision'] = tp/(tp + fp)
+        performance_metrics['recall'] = tp/(tp + fn)
+        performance_metrics['sensitivity'] = tp/(tp + fn)
+        performance_metrics['specificity'] = 0
+        performance_metrics['f1'] = 2 * performance_metrics['precision'] * performance_metrics['recall'] / (performance_metrics['precision'] + performance_metrics['recall'])
+    elif tp == 0 and tn == 0:
+        print("tp = 0, tn = 0")
+        performance_metrics['precision'] = 0
+        performance_metrics['recall'] = 0
+        performance_metrics['sensitivity'] = 0
+        performance_metrics['specificity'] = 0
+        performance_metrics['f1'] = 0
+
+    else:
+        performance_metrics['precision'] = tp/(tp + fp)
+        performance_metrics['recall'] = tp/(tp + fn)
+        performance_metrics['sensitivity'] = tp/(tp + fn)
+        performance_metrics['specificity'] = tn/(tn + fp)
+        performance_metrics['f1'] = 2 * performance_metrics['precision'] * performance_metrics['recall'] / (performance_metrics['precision'] + performance_metrics['recall'])
     return performance_metrics
 
+# Patient level classification
+def save_fold_patient(fold_num, spreadsheet_file, sheet_name, iteration_test_info):
+    book = pxl.load_workbook(spreadsheet_file)
+    with pd.ExcelWriter(spreadsheet_file, engine='openpyxl') as writer:
+        writer.book = book
+        writer.sheets = dict((ws.title, ws) for ws in book.worksheets) 
+        try:
+            startrow = writer.sheets[sheet_name].max_row
+            header = False
+        except Exception as e:
+            startrow = 0
+            header = True
+        data = iteration_test_info
+        df = pd.DataFrame(data = data)
+        df.to_excel(writer, sheet_name = sheet_name, startrow = startrow, header = header, index = False)
 '''
 PLOTTING GRAPH FUNCTIONS
 '''
@@ -301,7 +369,7 @@ def plot_train_val_acc_loss2(train_val_acc_loss, fold_num, images_dir):
     plt.rcParams["figure.figsize"] = (10,5)
     plt.plot(train_val_acc_loss['train_acc'], label = 'Training accuracy', color = 'darkorange')
     plt.plot(train_val_acc_loss['valid_acc'], label = 'Validation accuracy', color = 'darkgreen')
-    plt.title(f'Best model Accuracy')
+    plt.title(f'Accuracy Fold {fold_num}')
     plt.ylabel('Accuracy')
     plt.xlabel('Training epoch')
     plt.yticks(np.linspace(0, 1, num=21))
@@ -314,7 +382,7 @@ def plot_train_val_acc_loss2(train_val_acc_loss, fold_num, images_dir):
     plt.rcParams["figure.figsize"] = (10,5)
     plt.plot(train_val_acc_loss['train_loss'], label = 'Training loss', color = 'wheat')
     plt.plot(train_val_acc_loss['valid_loss'], label = 'Validation loss', color = 'lawngreen')
-    plt.title(f'Best model Loss')
+    plt.title(f'Loss Fold {fold_num}')
     plt.ylabel('Loss')
     plt.xlabel('Training epoch')
     plt.grid()
@@ -345,7 +413,11 @@ def scheduler(epoch, lr):
   else:
     return lr * tf.math.exp(-0.1)
 
-
+def mem_usage():
+    process = psutil.Process(os.getpid())
+    mem_bytes = process.memory_info().rss  # in bytes 
+    mem_gb = mem_bytes/(1024 * 1024 * 1024)
+    print(mem_gb, " GB")
 
 # def pipe_image(X, pipe, image_size):
 #     X = X.reshape((X.shape[0], X.shape[1] * X.shape[2]))    # Flatten the 224x224 array into a 50176 long array to pass into MinMaxScaler and StandardScaler
